@@ -1,0 +1,39 @@
+# Publishes web/ to GitHub Pages on every push to main.
+name: Deploy page
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # Stamp our script URLs with this commit (school.js -> school.js?v=abc1234) so phones
+      # load the new code right after a deploy instead of a cached older copy.
+      - name: Version script URLs
+        run: |
+          v="${GITHUB_SHA::7}"
+          sed -i -E "s#src=\"(parser|assistant|school)\.js\"#src=\"\1.js?v=${v}\"#g" web/index.html
+          grep -o 'src="[a-z]*\.js?v=[0-9a-f]*"' web/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4
