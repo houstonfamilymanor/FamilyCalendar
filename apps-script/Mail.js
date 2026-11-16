@@ -209,6 +209,26 @@ function getMail_() {
   };
 }
 
+/**
+ * The formatted (HTML) version of one stored school email, fetched when it's opened
+ * (too big to keep in the Sheet). Only emails already in the School tab can be fetched.
+ * Returns { html: "" } when there's no formatted version (e.g. plain-text copies).
+ */
+function getMailHtml_(id) {
+  id = String(id || '');
+  if (!/^[0-9a-f]{8,32}$/i.test(id)) throw new Error('Bad email id');
+  var row = readTable_('Mail').filter(function (r) { return r.id === id; })[0];
+  if (!row) throw new Error('Not a school email');
+  var msg = GmailApp.getMessageById(id);
+  var html = msg ? String(msg.getBody() || '') : '';
+  if (!/<(?:html|body|div|table|p|br|span|a)\b/i.test(html)) return { html: '' };
+  html = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')                      // never needed; the page sandboxes anyway
+    .replace(/<meta[^>]+http-equiv[^>]*>/gi, '')
+    .replace(/<img\b[^>]*\bsrc=["']cid:[^"']*["'][^>]*>/gi, '');        // inline images that can't load here
+  return { html: html.slice(0, 600000) };
+}
+
 function mutateMail_(d) {
   if (d.action === 'mail.sync') {
     var added = syncMail_();

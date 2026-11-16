@@ -98,14 +98,21 @@ function sendCopy_(m) {
     'Date: ' + m.getDate().toISOString() + '\n' +
     'Subject: ' + m.getSubject() + '\n\n' +
     m.getPlainBody();
+  // Formatted version too, so Family Command can show it the way Gmail does.
+  var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var options = {
+    htmlBody: '<div style="color:#5f6368;font:13px Arial,sans-serif">---------- Forwarded message ---------<br>' +
+      'From: ' + esc(m.getFrom()) + '<br>Date: ' + esc(m.getDate().toISOString()) + '<br>Subject: ' + esc(m.getSubject()) +
+      '</div><br>' + m.getBody()
+  };
   var files = m.getAttachments({ includeInlineImages: false });
   var size = files.reduce(function (n, f) { return n + f.getSize(); }, 0);
   if (files.length && size < 20 * 1024 * 1024) {
-    GmailApp.sendEmail(FAMILY_ADDRESS, 'Fwd: ' + m.getSubject(), body, { attachments: files });
-  } else {
-    if (files.length) body += '\n\n[Attachments too large to copy: ' + files.map(function (f) { return f.getName(); }).join(', ') + ']';
-    GmailApp.sendEmail(FAMILY_ADDRESS, 'Fwd: ' + m.getSubject(), body);
+    options.attachments = files;
+  } else if (files.length) {
+    body += '\n\n[Attachments too large to copy: ' + files.map(function (f) { return f.getName(); }).join(', ') + ']';
   }
+  GmailApp.sendEmail(FAMILY_ADDRESS, 'Fwd: ' + m.getSubject(), body, options);
 }
 
 /** Builds one Gmail search from every filter that forwards to FAMILY_ADDRESS. */

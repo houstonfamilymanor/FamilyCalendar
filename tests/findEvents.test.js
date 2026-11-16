@@ -56,5 +56,22 @@ check("newsletter lines", `Upcoming dates
 check("past dates dropped",
     "Thanks to everyone who came to the Fall Festival on October 30th!", new Date(2026, 10, 2), []);
 
+// A newsletter full of tracking links; a weekday that's part of a name isn't a date.
+check("newsletter with links", `This Week at School is LIVE on the school website, and is linked
+below for your convenience!
+
+This Week at School! Week of 11/16/26
+<https://u1.ct.example.net/ls/click?upn=u001.abc-2FvUyY2FIHn1INr-
+2FnAH0DZPahm9cPmcBxMuS8cQIPrhrw-3D>
+
+Of note, our school-wide Genius Day will be on Monday, November 23.
+Information can be found by clicking the link above!
+
+Additionally, we are now accepting RSVPs for our first ever Saturday
+Holiday Shoppe! Click here to learn more!
+<https://u1.ct.example.net/ls/click?upn=u001.4G-2BjNSxLlRW50aopnT0b8Vq>`, new Date(2026, 10, 15), [
+    "11/23 (all day) School-wide Genius Day"
+]);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

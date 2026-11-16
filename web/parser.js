@@ -176,9 +176,12 @@
             }
             return setDate(d);
         })
-        || st.take(new RegExp(`\\b(?:on\\s+)?(?:(this|next|coming)\\s+)?(${WEEKDAY_RE})\\b`), m => {
-            let diff = (WEEKDAYS[m[2]] - today.getDay() + 7) % 7;
-            if (m[1] === "next" && diff === 0) diff = 7;
+        || st.take(new RegExp(`\\b(on\\s+)?(?:(this|next|coming)\\s+)?(${WEEKDAY_RE})\\b`), m => {
+            // In emails a bare weekday is often part of a name ("our first ever Saturday Holiday
+            // Shoppe"), so there it only counts as a date after "on" / "this" / "next".
+            if (nearest && !m[1] && !m[2]) return false;
+            let diff = (WEEKDAYS[m[3]] - today.getDay() + 7) % 7;
+            if (m[2] === "next" && diff === 0) diff = 7;
             setDate(addDays(today, diff));
         })
         || st.take(/\b(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b/, m => {
@@ -459,6 +462,14 @@
 
     // ---------- events inside email / document text ----------
 
+    /** Remove web links from email text: "<https://…>" (even wrapped across lines) and bare URLs. */
+    function stripLinks(text) {
+        return String(text || "")
+            .replace(/<https?:\/\/[^>]*>/gi, " ")
+            .replace(/https?:\/\/\S+/gi, " ")
+            .replace(/[ \t]{2,}/g, " ");
+    }
+
     // A date only becomes a suggestion when it sits near one of these.
     const EVENT_WORDS = /\b(?:trip|field ?trip|picture|photo|party|parties|concert|conference|conferences|meeting|program|performance|early release|early dismissal|dismissal|no school|half[- ]day|holiday|break|celebration|show|fair|game|practice|test|quiz|exam|due|deadline|bring|wear|spirit|assembly|parade|festival|night|fundraiser|visit|presentation|orientation|open house|play|recital|day|days|dance|carnival|sale|drive|ceremony|graduation|social|lunch|breakfast|potluck|camp|tournament|meet|walk|run|reading|volunteer|sign[- ]?up|registration|return|turn in|starts?|ends?)\b/i;
     // ...and is skipped when it reads like a policy change rather than something to attend.
@@ -474,7 +485,7 @@
         now = now || new Date();
         const today = dayOnly(now);
         const out = [], seen = new Set();
-        const sentences = String(text || "")
+        const sentences = stripLinks(text)
             .replace(/\r/g, "")
             .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])|\n(?=\s*[-•*▪]|\s*\d{1,2}\/\d{1,2})/)
             .map(squash).filter(s => s.length > 3 && s.length < 400);
@@ -489,7 +500,12 @@
             if (POLICY_WORDS.test(sentence) && !/\b(?:trip|party|concert|conference|early release|no school|picture|assembly|fair|program)\b/i.test(sentence)) continue;
             let title = cleanTitle(st.orig, true)
                 .replace(/^(?:please\s+)?(?:remember|note|reminder|don't forget|just a reminder)(?:\s+that)?[\s,:]*/i, "")
-                .replace(/^(?:we will (?:have|be having)|we have|there will be|there is|our)\s+/i, "");
+                .replace(/^(?:additionally|also|of note|in addition|finally|plus|lastly|next|and|but|so)\b[\s,:]*/i, "")
+                .replace(/^(?:please\s+)?(?:remember|note|reminder|don't forget|just a reminder)(?:\s+that)?[\s,:]*/i, "")
+                .replace(/^(?:we will (?:have|be having)|we have|there will be|there is|our)\s+/i, "")
+                .replace(/^(?:we are|we're) (?:now )?/i, "")
+                .replace(/\s*(?:click here|learn more|information can be found)[\s\S]*$/i, "")
+                .replace(/\s+(?:will be|will take place|is scheduled|takes place|happens|is|are)$/i, "");
             if (title.length > 70) title = title.slice(0, 67).replace(/\s+\S*$/, "") + "…";
             title = cap(title || "School event");
             const k = (ev.allDay ? ev.start.toDateString() : ev.start.toISOString()) + "|" + title.toLowerCase();
@@ -538,7 +554,7 @@
         };
     }
 
-    const api = { parse, parseWhen, normalize, splitItems, bestMatch, cleanTitle, cleanListName, findEvents, mealSummary };
+    const api = { parse, parseWhen, normalize, splitItems, bestMatch, cleanTitle, cleanListName, findEvents, mealSummary, stripLinks };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else root.FamilyParser = api;
 })(typeof window !== "undefined" ? window : globalThis);

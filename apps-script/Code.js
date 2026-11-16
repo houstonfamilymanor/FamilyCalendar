@@ -39,6 +39,7 @@ function doGet(e) {
   return handle_(e.parameter.auth, function () {
     if (e.parameter.what === 'data') return getData_();
     if (e.parameter.what === 'mail') return getMail_();
+    if (e.parameter.what === 'mailhtml') return getMailHtml_(e.parameter.id);
     return listEvents_(e.parameter.from, e.parameter.to);
   });
 }

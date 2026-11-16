@@ -282,7 +282,7 @@
             const sugg = suggestionsFor(m);
             const live = sugg.map((s, i) => ({ s, i })).filter(({ i }) => !dismissed.has(m.id + ":" + i));
             const open = openId === m.id;
-            const excerpt = String(m.body || "").replace(/\s+/g, " ").trim().slice(0, 220);
+            const excerpt = P.stripLinks(m.body).replace(/\s+/g, " ").trim().slice(0, 220);
             const hits = calendarHits[m.id] || new Set();
             return `
             <article class="mail ${who ? "teacher" : ""} ${m.read ? "" : "unread"}" data-mail="${escapeHtml(m.id)}">
@@ -327,7 +327,7 @@
                             ${m.link ? `<a href="${escapeHtml(m.link)}" target="_blank" rel="noopener">Open in Gmail to view or download ↗</a>` : ""}
                         </div>
                     </div>` : ""}
-                    <div class="mail-text">${escapeHtml(m.body || "")}</div>
+                    <div class="mail-view">${viewInner(m)}</div>
                     <div class="mail-actions">
                         <button class="btn-sm btn-secondary" data-act="unread">Mark unread</button>
                         <button class="btn-sm btn-secondary" data-act="dismiss">Dismiss</button>
@@ -336,6 +336,85 @@
                 </div>` : ""}
             </article>`;
         }).join("");
+        hydrateFrames();
+    }
+
+    // ---------- showing an email the way Gmail would ----------
+
+    /** Plain text, with "<https://…>" blobs and bare URLs turned into small "🔗 link" links. */
+    function textHtml(body) {
+        const t = String(body || "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+        const re = /<(https?:\/\/[^>]+)>|(https?:\/\/[^\s<>"]+)/gi;
+        let out = "", last = 0, x;
+        while ((x = re.exec(t))) {
+            out += escapeHtml(t.slice(last, x.index));
+            const url = (x[1] || x[2]).replace(/\s+/g, "");
+            out += `<a class="text-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">🔗 link</a>`;
+            last = re.lastIndex;
+        }
+        return out + escapeHtml(t.slice(last));
+    }
+
+    /** Formatted email once loaded; cleaned-up text meanwhile, or when there's no formatted version. */
+    function viewInner(m) {
+        if (m._html === undefined) fetchHtml(m);
+        if (m._html) {
+            return `<iframe class="mail-frame" data-frame="${escapeHtml(m.id)}" title="Email"
+                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>`;
+        }
+        return `<div class="mail-text">${textHtml(m.body)}</div>`;
+    }
+
+    async function fetchHtml(m) {
+        if (m._htmlLoading) return;
+        m._htmlLoading = true;
+        try {
+            const res = await api("GET", { what: "mailhtml", id: m.id });
+            m._html = res.html || "";
+        } catch (e) {
+            m._html = "";
+        }
+        if (openId === m.id) render();
+    }
+
+    // The email's own HTML goes in a locked-down frame: no scripts or forms run (sandbox has no
+    // allow-scripts / allow-forms) and links open in a new tab.
+    function frameDoc(html) {
+        const head = `<base target="_blank"><meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                html, body { margin: 0; background: #fff; color: #222; }
+                body { padding: 14px; font: 14px/1.5 Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
+                img { max-width: 100% !important; height: auto !important; }
+                table { max-width: 100% !important; }
+                a { color: #1a73e8; }
+                pre { white-space: pre-wrap; }
+            </style>`;
+        return /<head[^>]*>/i.test(html)
+            ? html.replace(/<head[^>]*>/i, h => h + head)
+            : `<!doctype html><html><head>${head}</head><body>${html}</body></html>`;
+    }
+
+    function hydrateFrames() {
+        document.querySelectorAll("#school-list iframe[data-frame]").forEach(f => {
+            const m = mail.find(x => x.id === f.dataset.frame);
+            if (!m || !m._html) return;
+            f.addEventListener("load", () => fitFrame(f), { once: true });
+            f.srcdoc = frameDoc(m._html);
+        });
+    }
+
+    function fitFrame(f) {
+        try {
+            const d = f.contentDocument;
+            if (!d) return;
+            const fit = () => {
+                const h = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
+                f.style.height = Math.min(h + 2, 5000) + "px";
+            };
+            fit();
+            d.querySelectorAll("img").forEach(i => i.addEventListener("load", fit));
+            setTimeout(fit, 800);
+        } catch (e) { /* leave the default height */ }
     }
 
     function alertsHtml(alerts) {
@@ -358,7 +437,7 @@
                     <button class="btn-sm" data-act="handled">Took care of it</button>
                     <button class="btn-sm btn-secondary" data-act="toggle">${open ? "Hide email" : "View email"}</button>
                 </div>
-                ${open ? `<div class="mail-text meal-text">${escapeHtml(m.body || "")}</div>` : ""}
+                ${open ? `<div class="mail-text meal-text">${textHtml(m.body)}</div>` : ""}
             </div>`;
         }).join("") + `</section>`;
     }
