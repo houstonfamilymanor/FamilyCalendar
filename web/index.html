@@ -292,7 +292,7 @@
         }
 
         /* ---------- Modal ---------- */
-        #modal, #note-modal {
+        #modal, #note-modal, #settings {
             display: none;
             position: fixed;
             inset: 0;
@@ -644,6 +644,38 @@
             max-width: calc(100vw - 32px);
         }
 
+        .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        header { gap: 8px; }
+        @media (max-width: 760px) {
+            .brand h1 { font-size: 1.15rem; }
+            .brand { gap: 4px; }
+            #add-event-btn { flex: none; width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 1.4rem; line-height: 1; }
+            .hide-narrow { display: none; }
+        }
+        .gear-btn {
+            background: transparent;
+            color: var(--text-secondary);
+            padding: 6px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            flex: none;
+        }
+        .gear-btn svg { width: 22px; height: 22px; transition: transform 0.3s ease; }
+        .gear-btn:hover { background: var(--surface-2); color: var(--text); }
+        .gear-btn:hover svg { transform: rotate(45deg); }
+
+        .settings-content { max-width: 720px; max-height: 90vh; overflow-y: auto; }
+        .settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+        .settings-head h3 { margin: 0; }
+        .settings-section { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+        .settings-section h4 { margin: 0 0 6px; font-size: 1rem; }
+        .settings-section h4 span { color: var(--text-secondary); font-weight: 400; font-size: 0.85rem; }
+        .settings-hint { font-size: 0.8rem; color: var(--text-secondary); margin-top: 18px; }
+        .link-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+        .link-btn:hover { background: none; color: var(--accent-hover); }
+
         .roster { margin-top: 20px; }
         .roster + .roster { margin-top: 12px; }
         .rule-row { display: grid; grid-template-columns: 1.3fr 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -685,8 +717,11 @@
         <!-- App -->
         <div id="app-view" style="display: none;">
             <header>
-                <h1>Family Command</h1>
-                <button id="add-event-btn" onclick="openNewModal()">+ Add Event</button>
+                <div class="brand">
+                    <button type="button" class="gear-btn" id="settings-btn" data-open-settings aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.66 0-1.25.4-1.51 1z"/></svg></button>
+                    <h1>Family Command</h1>
+                </div>
+                <button id="add-event-btn" onclick="openNewModal()" aria-label="Add event" title="Add event">+<span class="hide-narrow"> Add Event</span></button>
             </header>
 
             <nav class="tabs" role="tablist">
@@ -763,31 +798,7 @@
                 <div id="school-list"><p class="empty">Loading…</p></div>
                 <div id="school-toast" class="toast" role="status" hidden></div>
 
-                <details class="panel roster" id="rules">
-                    <summary><strong>Sender categories</strong> <span id="rules-count"></span> · send certain senders to their own category</summary>
-                    <p class="roster-help">If the sender's address or name contains the text, the email goes to that category
-                        and skips event suggestions. Tick <strong>Balance alert</strong> for lunch-account emails to get the
-                        child and dollar balance as an alert card with “Took care of it”. Everything else stays regular school mail.
-                        Saved in your family Google Sheet, not in the app's code.</p>
-                    <div id="rules-rows"></div>
-                    <div class="modal-actions" style="margin-top: 10px;">
-                        <button type="button" class="btn-sm btn-secondary" id="rules-add" style="margin-right: auto;">+ Add rule</button>
-                        <span id="rules-msg" class="roster-help"></span>
-                        <button class="btn-sm" id="rules-save">Save categories</button>
-                    </div>
-                </details>
-
-                <details class="panel roster" id="roster">
-                    <summary><strong>Teachers</strong> <span id="roster-count"></span> · who's who, so emails get tagged by kid</summary>
-                    <p class="roster-help">One per line: <code>Name - Kid</code>. Use the name as it appears on the email
-                        (e.g. <code>Jane Smith - Sam</code>) or the portal's style (<code>J Doe - Mia</code>).
-                        Matching uses the last name and, if you give one, the first initial.</p>
-                    <textarea class="input" id="roster-text" rows="8" spellcheck="false"></textarea>
-                    <div class="modal-actions" style="margin-top: 10px;">
-                        <span id="roster-msg" class="roster-help" style="margin-right: auto;"></span>
-                        <button class="btn-sm" id="roster-save">Save teachers</button>
-                    </div>
-                </details>
+                <p class="settings-hint">Teachers and sender categories are in <button type="button" class="link-btn" data-open-settings>⚙ Settings</button>.</p>
             </div>
 
             <div id="lists-view" hidden>
@@ -815,6 +826,42 @@
                     </section>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Settings (gear icon) -->
+    <div id="settings">
+        <div class="modal-content settings-content">
+            <div class="settings-head">
+                <h3>⚙ Settings</h3>
+                <button type="button" class="icon-btn" id="settings-close" aria-label="Close settings">✕</button>
+            </div>
+            <p class="roster-help" style="margin-top: 0;">Everything here is saved in your family Google Sheet, not in the app's code.</p>
+
+            <section class="settings-section" id="rules">
+                <h4>Sender categories <span id="rules-count"></span></h4>
+                <p class="roster-help">If the sender's address or name contains the text, the email goes to that category
+                    and skips event suggestions. Tick <strong>Balance alert</strong> for lunch-account emails to get the
+                    child and dollar balance as an alert card with “Took care of it”. Everything else stays regular school mail.</p>
+                <div id="rules-rows"></div>
+                <div class="modal-actions" style="margin-top: 10px;">
+                    <button type="button" class="btn-sm btn-secondary" id="rules-add" style="margin-right: auto;">+ Add rule</button>
+                    <span id="rules-msg" class="roster-help"></span>
+                    <button class="btn-sm" id="rules-save">Save categories</button>
+                </div>
+            </section>
+
+            <section class="settings-section" id="roster">
+                <h4>Teachers <span id="roster-count"></span></h4>
+                <p class="roster-help">Who's who, so emails get tagged by kid. One per line: <code>Name - Kid</code>.
+                    Use the name as it appears on the email (e.g. <code>Jane Smith - Sam</code>) or the portal's style
+                    (<code>J Doe - Mia</code>). Matching uses the last name and, if you give one, the first initial.</p>
+                <textarea class="input" id="roster-text" rows="8" spellcheck="false"></textarea>
+                <div class="modal-actions" style="margin-top: 10px;">
+                    <span id="roster-msg" class="roster-help" style="margin-right: auto;"></span>
+                    <button class="btn-sm" id="roster-save">Save teachers</button>
+                </div>
+            </section>
         </div>
     </div>
 

@@ -389,7 +389,6 @@
         if (document.activeElement !== el("roster-text")) {
             el("roster-text").value = roster.map(r => r.kid ? `${r.name} - ${r.kid}` : r.name).join("\n");
         }
-        if (!roster.length && loaded) el("roster").open = true;
     }
 
     async function saveRoster() {
@@ -521,5 +520,24 @@
         if (document.visibilityState === "visible" && idToken && loaded) load();
     });
 
-    window.FamilySchool = { load, render };
+    // ---------- Settings screen (gear icon left of the title) ----------
+
+    function openSettings() {
+        el("settings").style.display = "flex";
+        renderRules();
+        renderRoster();
+        load();                          // pick up edits made on the other phone
+    }
+    function closeSettings() { el("settings").style.display = "none"; }
+
+    document.addEventListener("click", e => {
+        if (e.target.closest("[data-open-settings]")) openSettings();
+    });
+    el("settings-close").addEventListener("click", closeSettings);
+    el("settings").addEventListener("click", e => { if (e.target.id === "settings") closeSettings(); });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && el("settings").style.display === "flex") closeSettings();
+    });
+
+    window.FamilySchool = { load, render, openSettings };
 })();
