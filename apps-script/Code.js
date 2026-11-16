@@ -40,6 +40,7 @@ function doGet(e) {
     if (e.parameter.what === 'data') return getData_();
     if (e.parameter.what === 'mail') return getMail_();
     if (e.parameter.what === 'mailhtml') return getMailHtml_(e.parameter.id);
+    if (e.parameter.what === 'attachment') return getAttachment_(e.parameter.id, e.parameter.i);
     return listEvents_(e.parameter.from, e.parameter.to);
   });
 }

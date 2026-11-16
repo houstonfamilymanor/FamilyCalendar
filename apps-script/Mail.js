@@ -229,6 +229,27 @@ function getMailHtml_(id) {
   return { html: html.slice(0, 600000) };
 }
 
+/**
+ * One attachment of a stored school email, as base64, for the page's viewer / download.
+ * i is the position in the email's attachment list (same order the School tab shows).
+ */
+var MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+function getAttachment_(id, i) {
+  id = String(id || '');
+  if (!/^[0-9a-f]{8,32}$/i.test(id)) throw new Error('Bad email id');
+  if (!readTable_('Mail').some(function (r) { return r.id === id; })) throw new Error('Not a school email');
+  var msg = GmailApp.getMessageById(id);
+  var f = msg ? msg.getAttachments({ includeInlineImages: false })[Number(i)] : null;
+  if (!f) throw new Error('Attachment not found');
+  if (f.getSize() > MAX_ATTACHMENT_BYTES) throw new Error('This file is too big to open here. Use "Open in Gmail".');
+  return {
+    name: f.getName(),
+    type: f.getContentType() || 'application/octet-stream',
+    size: f.getSize(),
+    data: Utilities.base64Encode(f.getBytes())
+  };
+}
+
 function mutateMail_(d) {
   if (d.action === 'mail.sync') {
     var added = syncMail_();

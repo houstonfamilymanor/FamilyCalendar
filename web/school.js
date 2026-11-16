@@ -229,7 +229,7 @@
         const opts = [["all", "All"], ["cat:school", "School"],
             ...categories.filter(c => count(c.id)).map(c => ["cat:" + c.id, c.id === "meal" ? `${c.label} (${count(c.id)})` : c.label]),
             ["unread", "Unread"], ["teachers", "Teachers"],
-            ["attach", "✨ Has attachment"],
+            ["attach", "✨ Has attachment"], ["files", "📎 Files"],
             ...kids().map(k => ["kid:" + k, k])];
         el("school-filters").innerHTML = opts.map(([v, label]) =>
             `<button type="button" class="chip" data-filter="${escapeHtml(v)}" aria-pressed="${filter === v}">${escapeHtml(label)}</button>`).join("");
@@ -248,6 +248,14 @@
         if (!loaded) return;
         renderFilters();
         updateBadge();
+
+        if (filter === "files") {
+            const rows = mail.flatMap(m => (m.attachments || []).map((a, i) => fileRow(m, a, i, true)));
+            el("school-list").innerHTML = rows.length
+                ? `<ul class="file-list files-view">${rows.join("")}</ul>`
+                : `<p class="empty">No attachments yet.</p>`;
+            return;
+        }
 
         // Meal alerts are shown as alert cards at the top, not as emails.
         let alerts = mail.filter(m => catOf(m).id === "meal");
@@ -323,7 +331,7 @@
                         <span class="attach"><svg class="sparkle" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="gold-${m.id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset=".45" stop-color="#f2c94c"/><stop offset="1" stop-color="#b8860b"/></linearGradient></defs><path fill="url(#gold-${m.id})" d="M12 1.5l2.3 6.4 6.7 2.1-6.7 2.1L12 18.5l-2.3-6.4L3 10l6.7-2.1z"/><path class="twinkle" fill="#f2c94c" d="M19 15l.9 2.4 2.4.9-2.4.9L19 21.6l-.9-2.4-2.4-.9 2.4-.9z"/><path class="twinkle t2" fill="#f2c94c" d="M5 15.5l.6 1.6 1.6.6-1.6.6L5 19.9l-.6-1.6-1.6-.6 1.6-.6z"/></svg></span>
                         <div>
                             <strong>${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}</strong>. Could be a schedule or a form.
-                            <ul>${m.attachments.map(a => `<li>${escapeHtml(a)}</li>`).join("")}</ul>
+                            <ul class="file-list">${m.attachments.map((a, i) => fileRow(m, a, i, false)).join("")}</ul>
                             ${m.link ? `<a href="${escapeHtml(m.link)}" target="_blank" rel="noopener">Open in Gmail to view or download ↗</a>` : ""}
                         </div>
                     </div>` : ""}
@@ -416,6 +424,85 @@
             setTimeout(fit, 800);
         } catch (e) { /* leave the default height */ }
     }
+
+    // ---------- attachments: view / download ----------
+
+    function fileIcon(name) {
+        const ext = String(name).split(".").pop().toLowerCase();
+        if (ext === "pdf") return "📄";
+        if (/^(png|jpe?g|gif|webp|heic|bmp|svg)$/.test(ext)) return "🖼️";
+        if (/^(docx?|rtf|odt|txt|pages)$/.test(ext)) return "📝";
+        if (/^(xlsx?|csv|ods|numbers)$/.test(ext)) return "📊";
+        if (/^(pptx?|key|odp)$/.test(ext)) return "📽️";
+        return "📎";
+    }
+
+    function fileRow(m, name, i, showFrom) {
+        return `<li class="file-row" data-mail="${escapeHtml(m.id)}" data-file="${i}">
+            <span class="file-icon" aria-hidden="true">${fileIcon(name)}</span>
+            <span class="file-name">${escapeHtml(name)}
+                ${showFrom ? `<span class="file-from">${escapeHtml(titleCase(m.fromName) || m.fromEmail)} · ${escapeHtml(ago(m.date))} · ${escapeHtml(m.subject || "")}</span>` : ""}
+            </span>
+            <span class="file-actions">
+                <button type="button" class="btn-sm" data-act="file-view">View</button>
+                <button type="button" class="btn-sm btn-secondary" data-act="file-dl">Download</button>
+            </span>
+        </li>`;
+    }
+
+    const fileCache = new Map();      // "mailId:index" -> { name, type, url }
+    async function getFile(m, i) {
+        const key = m.id + ":" + i;
+        if (fileCache.has(key)) return fileCache.get(key);
+        const res = await api("GET", { what: "attachment", id: m.id, i });
+        const bin = atob(res.data);
+        const bytes = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        const file = { name: res.name, type: res.type, url: URL.createObjectURL(new Blob([bytes], { type: res.type })) };
+        fileCache.set(key, file);
+        return file;
+    }
+
+    function download(file) {
+        const a = document.createElement("a");
+        a.href = file.url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+
+    const isPhone = () => window.matchMedia("(pointer: coarse)").matches;
+
+    async function openFile(m, i, mode, btn) {
+        const label = btn ? btn.textContent : "";
+        if (btn) { btn.disabled = true; btn.textContent = "Opening…"; }
+        try {
+            const f = await getFile(m, i);
+            const isImage = /^image\//.test(f.type);
+            const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+            // Phones can't show a PDF inside a page: hand it to the phone's PDF viewer instead.
+            if (mode === "dl" || (!isImage && !isPdf) || (isPdf && isPhone())) { download(f); return; }
+            el("viewer-name").textContent = f.name;
+            el("viewer-body").innerHTML = isImage
+                ? `<img src="${f.url}" alt="${escapeHtml(f.name)}">`
+                : `<iframe src="${f.url}" title="${escapeHtml(f.name)}"></iframe>`;
+            el("viewer-dl").onclick = () => download(f);
+            el("file-viewer").style.display = "flex";
+        } catch (err) {
+            showToast("Couldn't open the file: " + err.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = label; }
+        }
+    }
+
+    function closeViewer() {
+        el("file-viewer").style.display = "none";
+        el("viewer-body").innerHTML = "";
+    }
+    el("viewer-close").addEventListener("click", closeViewer);
+    el("file-viewer").addEventListener("click", e => { if (e.target.id === "file-viewer") closeViewer(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && el("file-viewer").style.display === "flex") closeViewer(); });
 
     function alertsHtml(alerts) {
         return `<section class="meal-alerts">` + alerts.map(m => {
@@ -543,6 +630,13 @@
     el("roster-save").addEventListener("click", saveRoster);
 
     el("school-list").addEventListener("click", e => {
+        const fileBtn = e.target.closest("[data-act='file-view'], [data-act='file-dl']");
+        if (fileBtn) {
+            const row = fileBtn.closest("[data-file]");
+            const fm = mail.find(x => x.id === row.dataset.mail);
+            if (fm) openFile(fm, Number(row.dataset.file), fileBtn.dataset.act === "file-dl" ? "dl" : "view", fileBtn);
+            return;
+        }
         const card = e.target.closest("[data-mail]");
         if (!card || e.target.closest("a")) return;
         const m = mail.find(x => x.id === card.dataset.mail);
