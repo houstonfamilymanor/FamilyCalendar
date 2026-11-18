@@ -1142,13 +1142,19 @@
         const isAuthError = msg => /^auth_(missing|expired|invalid)/.test(msg || "");
 
         async function api(method, data) {
-            let res;
-            if (method === "GET") {
-                const q = new URLSearchParams({ ...data, auth: idToken });
-                res = await fetch(`${API_URL}?${q}`);
-            } else {
+            const send = () => method === "GET"
+                ? fetch(`${API_URL}?${new URLSearchParams({ ...data, auth: idToken })}`)
                 // text/plain body (fetch default) keeps this a "simple" request: no CORS preflight.
-                res = await fetch(API_URL, { method: "POST", body: JSON.stringify({ ...data, auth: idToken }) });
+                : fetch(API_URL, { method: "POST", body: JSON.stringify({ ...data, auth: idToken }) });
+            let res;
+            try {
+                res = await send();
+            } catch (err) {
+                // "Failed to fetch": no answer at all (a blip, or the server mid-update). Reads are
+                // safe to repeat, so try once more; writes aren't retried in case the first one landed.
+                if (method !== "GET") throw err;
+                await new Promise(r => setTimeout(r, 1500));
+                res = await send();
             }
             const out = await res.json();
             if (out && out.error) {
