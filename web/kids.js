@@ -173,8 +173,11 @@
         return loaded;
     }
 
+    // index.html's `calendar` (window.calendar is the #calendar <div>, so don't test that).
+    const cal = () => (typeof calendar !== "undefined" && calendar && calendar.getEventSourceById) ? calendar : null;
+
     function redraw() {
-        const src = window.calendar && calendar.getEventSourceById("kids");
+        const src = cal() && cal().getEventSourceById("kids");
         if (src) src.refetch();
         if (typeof renderDashboard === "function") renderDashboard();
     }
@@ -219,23 +222,31 @@
         return ymd(d);
     }
 
-    /** FullCalendar event source (id "kids"). */
+    /**
+     * FullCalendar event source (id "kids"). FullCalendar draws NOTHING until every source has
+     * answered, so this answers at once with what it has (nothing, before the first load) and
+     * refetches itself when the school data arrives. A slow school request never blanks the calendar.
+     */
+    let dataReady = false;
     const calendarSource = {
         id: "kids",
         events: (info, success) => {
-            Promise.all([ready(), FamilyTags.ready()]).then(() => {
-                success(itemsBetween(info.start, info.end).map(it => ({
-                    id: it.key,
-                    title: it.title,
-                    start: it.start,
-                    end: endOf(it),
-                    allDay: it.allDay,
-                    editable: false,
-                    display: FamilyTags.visible({ tags: it.tags }) ? "auto" : "none",
-                    classNames: ["ev-school"],
-                    extendedProps: { tags: it.tags, tagColor: colorOf(it.tags), school: it.key }
-                })));
-            });
+            if (!dataReady) {
+                success([]);
+                Promise.all([ready(), FamilyTags.ready()]).then(() => { dataReady = true; redraw(); });
+                return;
+            }
+            success(itemsBetween(info.start, info.end).map(it => ({
+                id: it.key,
+                title: it.title,
+                start: it.start,
+                end: endOf(it),
+                allDay: it.allDay,
+                editable: false,
+                display: FamilyTags.visible({ tags: it.tags }) ? "auto" : "none",
+                classNames: ["ev-school"],
+                extendedProps: { tags: it.tags, tagColor: colorOf(it.tags), school: it.key }
+            })));
         }
     };
 

@@ -106,7 +106,8 @@
 
     /** Show/hide events already on the calendar without fetching them again. */
     function applyToCalendar() {
-        if (window.calendar) {
+        // index.html's `calendar` (window.calendar is the #calendar <div>, so don't test that).
+        if (typeof calendar !== "undefined" && calendar && calendar.batchRendering) {
             calendar.batchRendering(() => {
                 calendar.getEvents().forEach(e => {
                     const ev = { tags: e.extendedProps.tags || [] };
