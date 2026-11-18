@@ -17,15 +17,23 @@
     const PALETTE = ["#e57373", "#f2a65a", "#e6c84f", "#7cc576", "#4fb3bf", "#6c8ef5", "#a77bd8", "#d97aa6", "#8d9aa8"];
 
     let tags = [];
+    let builtins = [];               // filters the app adds itself (one per kid's lunch menu): chips only
     let loadedPromise = null;
+    const allTags = () => builtins.concat(tags);
 
     // Per-device on/off choices: { tagId: true|false }. Unset = the tag's shared default.
     let choice = {};
     try { choice = JSON.parse(localStorage.getItem("tag-filter") || "{}") || {}; } catch (e) {}
     const saveChoice = () => { try { localStorage.setItem("tag-filter", JSON.stringify(choice)); } catch (e) {} };
 
-    const byId = id => tags.find(t => t.id === id);
+    const byId = id => allTags().find(t => t.id === id);
     const isOn = t => (t.id in choice) ? choice[t.id] : !t.hidden;
+    const isOnId = id => { const t = byId(id); return !!t && isOn(t); };
+
+    function setBuiltins(list) {
+        builtins = list || [];
+        renderFilters();
+    }
 
     // ---------- loading ----------
 
@@ -74,9 +82,10 @@
 
     function renderFilters() {
         const box = el("tag-filters");
-        if (!tags.length) { box.hidden = true; box.innerHTML = ""; return; }
+        const list = allTags();
+        if (!list.length) { box.hidden = true; box.innerHTML = ""; return; }
         box.hidden = false;
-        box.innerHTML = `<span class="tag-filters-label">Show:</span>` + tags.map(t => `
+        box.innerHTML = `<span class="tag-filters-label">Show:</span>` + list.map(t => `
             <button type="button" class="chip tag-chip ${t.hidden ? "detail" : ""}" data-tag="${escapeHtml(t.id)}"
                 aria-pressed="${isOn(t)}" style="--tag:${escapeHtml(t.color)}"
                 title="${isOn(t) ? "Showing" : "Hidden"}${t.hidden ? " · detail tag (off unless you turn it on)" : ""}">
@@ -128,7 +137,7 @@
         picked = new Set(ids || []);
         renderPicker();
     }
-    const getPicked = () => [...picked].filter(byId);
+    const getPicked = () => [...picked].filter(id => tags.some(t => t.id === id));
 
     el("tag-picker").addEventListener("click", e => {
         const b = e.target.closest("[data-pick]");
@@ -188,5 +197,5 @@
         }
     });
 
-    window.FamilyTags = { ready, reload, visible, color, badges, setPicked, getPicked, applyToCalendar, renderEditor };
+    window.FamilyTags = { ready, reload, visible, color, badges, setPicked, getPicked, applyToCalendar, renderEditor, setBuiltins, isOnId };
 })();

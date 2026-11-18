@@ -25,6 +25,11 @@ var TABLES = {
   // Event tags (Tags.js)
   Tags: ['id', 'name', 'color', 'hidden', 'order'],
   EventTags: ['id', 'tags', 'updatedAt'],
+  // Kids' schools: lunch menus, school events, letter days (Schools.js)
+  Kids: ['id', 'name', 'site', 'menuFeed', 'eventsFeed', 'letterCal', 'letterMeanings', 'lastTry', 'lastOk', 'error', 'order'],
+  Lunch: ['id', 'feed', 'date', 'breakfast', 'lunch', 'fetchedAt'],
+  SchoolEvents: ['id', 'feed', 'title', 'start', 'end', 'allDay', 'date', 'fetchedAt'],
+  LetterDays: ['id', 'cal', 'date', 'label', 'fetchedAt'],
   Roster: ['id', 'name', 'kid', 'order'],
   // Sender categories: emails whose sender contains `match` go to `label`.
   // kind: "group" (own filter, no event suggestions) or "meal" (balance alert card).

@@ -41,6 +41,7 @@ function doGet(e) {
     if (e.parameter.what === 'mail') return getMail_();
     if (e.parameter.what === 'dismissed') return getDismissed_();
     if (e.parameter.what === 'tags') return { tags: getTags_() };
+    if (e.parameter.what === 'school') return getSchools_();
     if (e.parameter.what === 'mailhtml') return getMailHtml_(e.parameter.id);
     if (e.parameter.what === 'attachment') return getAttachment_(e.parameter.id, e.parameter.i);
     return listEvents_(e.parameter.from, e.parameter.to);
@@ -61,6 +62,8 @@ function doPost(e) {
     if (/^(mail|roster|rules)\./.test(data.action)) return mutateMail_(data);
     // "tags.save", "event.tags" go to event tags (Tags.js).
     if (/^(tags|event)\./.test(data.action)) return mutateTags_(data);
+    // "school.save", "school.sync" go to kids' schools: lunch, events, letter days (Schools.js).
+    if (/^school\./.test(data.action)) return mutateSchools_(data);
     return mutate_(data);
   });
 }

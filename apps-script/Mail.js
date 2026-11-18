@@ -44,6 +44,7 @@ var MAIL_BODY_MAX = 20000;
 
 /** Trigger entry point (triggers can't call names ending in "_"). */
 function syncMail() {
+  refreshSchoolsIfStale_();      // kids' school feeds ride on this trigger (no extra trigger to install)
   return syncMail_();
 }
 
