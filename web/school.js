@@ -258,6 +258,7 @@
         const b = el("school-badge");
         b.hidden = !n;
         b.textContent = n;
+        if (window.FamilyToday) FamilyToday.render();
     }
 
     function renderFilters() {
@@ -809,5 +810,36 @@
         if (e.key === "Escape" && el("settings").style.display === "flex") closeSettings();
     });
 
-    window.FamilySchool = { load, render, openSettings };
+    /**
+     * For the Today page (null until email has loaded): meal-account alerts, unread teacher
+     * email, and things school email says happen today that aren't skipped or on the calendar.
+     */
+    function attention() {
+        if (!loaded) return null;
+        const today = ymd(new Date());
+        const meals = mail.filter(m => catOf(m).id === "meal").map(m => ({ id: m.id, ...meal(m) }));
+        const unread = mail.filter(m => !m.read && teacherOf(m)).length;
+        const mentions = [];
+        for (const m of mail) {
+            const hits = calendarHits[m.id] || new Set();
+            suggestionsFor(m).forEach((s, i) => {
+                if (ymd(s.start) !== today || dismissed.has(m.id + ":" + i) || hits.has(i)) return;
+                mentions.push({ id: m.id, title: s.title, allDay: s.allDay, start: s.start, from: m.fromName || m.subject });
+            });
+        }
+        return { meals, unread, mentions };
+    }
+
+    /** Jump to the School tab with one email open. */
+    function openMail(id) {
+        filter = "all";
+        openId = id;
+        showTab("school");
+        const m = mail.find(x => x.id === id);
+        if (m) { setRead(m, true); checkCalendar(m); }
+        render();
+        requestAnimationFrame(() => { const r = document.querySelector(`#school-list [data-mail="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: "start" }); });
+    }
+
+    window.FamilySchool = { load, render, openSettings, attention, openMail };
 })();

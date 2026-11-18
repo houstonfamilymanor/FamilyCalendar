@@ -59,5 +59,24 @@ check("shared item carries both kids' chips", shared.tags, ["_lunch:k1", "_lunch
 check("other schools' events never show", K.buildItems(data, "2030-01-01", "2030-02-01").some(i => /Other school/.test(i.title)), false);
 check("range is respected", K.buildItems(data, "2030-01-08", "2030-01-09").length, 2);
 
+// ----- Today page: one day, kid by kid -----
+const day7 = K.kidDay(data, "2030-01-07");
+check("today: one entry per kid", day7.map(k => k.name), ["Sam", "Mia"]);
+check("today: letter + that kid's meaning", day7.map(k => k.letter), [{ label: "C-Day", meaning: "Gym" }, { label: "C-Day", meaning: "Art" }]);
+check("today: lunch entrées", day7[0].lunch.lunch.entrees, ["Turkey Wrap", "Veggie Pasta"]);
+check("today: own school's events only", day7.map(k => k.events.map(e => e.title)), [["Book Fair"], ["book fair"]]);
+const day8 = K.kidDay(data, "2030-01-08");
+check("today: no letter / no menu that day", [day8[0].letter, day8[0].lunch], [null, null]);
+check("today: other kid's menu that day", day8[1].lunch.text, "Tacos");
+const multi = { kids: [{ id: "k", name: "Sam", eventsFeed: "e" }], events: [
+    { feed: "e", title: "Spirit Week", start: "2030-01-06", end: "2030-01-10", allDay: true },
+    { feed: "e", title: "Concert", start: new Date(2030, 0, 7, 18).toISOString(), end: new Date(2030, 0, 7, 19).toISOString(), allDay: false },
+    { feed: "e", title: "Assembly", start: new Date(2030, 0, 7, 9).toISOString(), end: new Date(2030, 0, 7, 10).toISOString(), allDay: false },
+    { feed: "e", title: "Tomorrow thing", start: new Date(2030, 0, 8, 9).toISOString(), end: new Date(2030, 0, 8, 10).toISOString(), allDay: false }] };
+check("today: multi-day + timed in order, all-day first", K.kidDay(multi, "2030-01-07")[0].events.map(e => e.title),
+    ["Spirit Week", "Assembly", "Concert"]);
+check("today: no feeds set up -> empty, no crash", K.kidDay({ kids: [{ id: "k", name: "Sam" }], lunch: [{ date: "2030-01-07", lunch: typical }] }, "2030-01-07")[0],
+    { id: "k", name: "Sam", letter: null, lunch: null, events: [], errors: {}, pending: false, has: { lunch: false, events: false, letters: false } });
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

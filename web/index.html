@@ -219,6 +219,61 @@
         .ev-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .empty { color: var(--text-secondary); font-size: 0.9rem; padding: 4px 10px; }
 
+        /* ---------- Today (day at a glance) ---------- */
+        .td-hero { margin: 4px 2px 16px; }
+        .td-greet { color: var(--text-secondary); font-size: 0.95rem; }
+        .td-date { font-size: 2rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.01em; }
+        .td-sub { color: var(--accent); font-weight: 600; margin-top: 4px; min-height: 1.2em; }
+        .td-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; margin-bottom: 20px; }
+        @media (max-width: 760px) { .td-grid { grid-template-columns: 1fr; } .td-date { font-size: 1.6rem; } }
+        .td-kids { display: grid; gap: 16px; min-width: 0; }
+
+        .td-heads { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .td-alert {
+            display: block; width: 100%; text-align: left; font: inherit; color: var(--text);
+            background: var(--surface); border: 1px solid var(--allday); border-left: 4px solid var(--allday);
+            border-radius: 10px; padding: 10px 14px; cursor: pointer;
+        }
+        .td-alert:hover { background: var(--surface-2); }
+        .td-alert.neg { border-color: var(--danger); }
+
+        .td-allday { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .td-chip {
+            font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--text); cursor: pointer;
+            background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--allday);
+            border-radius: 8px; padding: 5px 10px;
+        }
+        .td-chip.recurring { border-left-color: var(--recurring); }
+        .td-row {
+            display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+            padding: 9px 10px; border-radius: 8px; cursor: pointer; border-left: 3px solid var(--accent);
+        }
+        .td-row + .td-row, .td-now + .td-row { margin-top: 4px; }
+        .td-row:hover { background: var(--surface-2); }
+        .td-row.recurring { border-left-color: var(--recurring); }
+        .td-row.on { background: var(--today-bg); }
+        .td-row.done { opacity: 0.5; }
+        .td-row.done .td-what { text-decoration: line-through; }
+        .td-time { flex: 0 0 78px; color: var(--text-secondary); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+        .td-what { flex: 1 1 140px; font-weight: 600; min-width: 0; }
+        .td-note { font-size: 0.78rem; font-weight: 700; color: var(--accent); }
+        .td-note.on { color: var(--danger); }
+        .td-now { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--danger); font-size: 0.75rem; font-weight: 700; }
+        .td-now::after { content: ""; flex: 1; height: 2px; background: var(--danger); border-radius: 2px; }
+        .td-done { color: var(--text-secondary); font-size: 0.9rem; margin: 10px 10px 0; }
+
+        .td-kid h2 { font-size: 0.85rem; color: var(--text); }
+        .td-kid > * + * { margin-top: 10px; }
+        .td-letter { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .td-letter-big { font-size: 1.5rem; font-weight: 800; color: var(--accent); }
+        .td-label { display: block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 2px; }
+        .td-menu { font-weight: 600; }
+        .td-or { color: var(--text-secondary); font-weight: 400; font-size: 0.85rem; }
+        .td-sides { font-weight: 400; color: var(--text-secondary); font-size: 0.88rem; margin-top: 2px; }
+        .td-sev { font-size: 0.95rem; }
+        .td-muted { color: var(--text-secondary); font-weight: 400; font-size: 0.9rem; }
+        .td-kid p { margin: 0; }
+
         /* ---------- Calendar (FullCalendar, themed) ---------- */
         #calendar-panel { padding: 12px; }
 
@@ -823,12 +878,29 @@
             </header>
 
             <nav class="tabs" role="tablist">
-                <button class="tab" role="tab" data-tab="calendar" aria-selected="true">Calendar</button>
+                <button class="tab" role="tab" data-tab="today" aria-selected="true">Today</button>
+                <button class="tab" role="tab" data-tab="calendar" aria-selected="false">Calendar</button>
                 <button class="tab" role="tab" data-tab="lists" aria-selected="false">Lists &amp; Notes</button>
                 <button class="tab" role="tab" data-tab="school" aria-selected="false">School <span class="tab-badge" id="school-badge" hidden></span></button>
             </nav>
 
-            <div id="calendar-view">
+            <div id="today-view">
+                <div class="td-hero">
+                    <div class="td-greet" id="td-greet"></div>
+                    <div class="td-date" id="td-date"></div>
+                    <div class="td-sub" id="td-sub"></div>
+                </div>
+                <div id="td-heads"></div>
+                <div class="td-grid">
+                    <section class="panel td-schedule">
+                        <h2>Schedule</h2>
+                        <div id="td-schedule"><p class="empty">Loading…</p></div>
+                    </section>
+                    <div class="td-kids" id="td-kids"></div>
+                </div>
+            </div>
+
+            <div id="calendar-view" hidden>
             <section class="dashboard">
                 <div class="panel">
                     <h2>Today</h2>
@@ -1233,17 +1305,23 @@
 
         let dashboardAll = [];       // everything in the next two weeks
         let dashboardEvents = [];    // the ones the tag filters let through (the assistant reads these too)
+        let dashboardState = "loading";   // "loading" | "ok" | an error message (the Today tab reads this)
+        let dashboardDay = "";            // which day it was loaded for (reloads after midnight)
 
         async function loadDashboard() {
             const today = startOfDay(new Date());
+            dashboardDay = ymd(today);
             try {
                 const [list] = await Promise.all([api("GET", {
                     from: today.toISOString(),
                     to: new Date(today.getTime() + 15 * DAY).toISOString()
                 }), FamilyTags.ready()]);
                 dashboardAll = list.map(normalize).sort((a, b) => a.start - b.start);
+                dashboardState = "ok";
             } catch (err) {
                 document.getElementById("upcoming-list").innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
+                if (dashboardState === "loading") dashboardState = err.message;
+                if (window.FamilyToday) FamilyToday.render();
                 return;
             }
             renderDashboard();
@@ -1253,6 +1331,7 @@
 
         /** Draw Today / Coming up from the loaded events (re-run when a tag filter changes). */
         function renderDashboard() {
+            if (window.FamilyToday) FamilyToday.render();
             const now = new Date();
             const today = startOfDay(now);
             const tomorrow = new Date(today.getTime() + DAY);
@@ -1633,22 +1712,30 @@
         // ---------- tabs ----------
 
         function savedTab() {
-            try { const t = localStorage.getItem("tab"); return ["lists", "school"].includes(t) ? t : "calendar"; } catch (e) { return "calendar"; }
+            return "today";   // the app always opens on the day at a glance
         }
 
         function showTab(name) {
             document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+            $("today-view").hidden = name !== "today";
             $("calendar-view").hidden = name !== "calendar";
             $("lists-view").hidden = name !== "lists";
             $("school-view").hidden = name !== "school";
-            $("add-event-btn").hidden = name !== "calendar";
-            try { localStorage.setItem("tab", name); } catch (e) {}
+            $("add-event-btn").hidden = name !== "calendar" && name !== "today";
+            if (name === "today" && window.FamilyToday) FamilyToday.render();
             if (name === "calendar" && calendar) calendar.updateSize();
             if (name === "lists") loadData();
             if (name === "school" && window.FamilySchool) FamilySchool.load();
         }
 
         document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => showTab(t.dataset.tab)));
+
+        // Today keeps itself current: the "now" line moves every minute, and after midnight it reloads for the new day.
+        setInterval(() => {
+            if (!idToken || document.visibilityState !== "visible") return;
+            if (dashboardDay && dashboardDay !== ymd(new Date())) loadDashboard();
+            else if (!$("today-view").hidden && window.FamilyToday) FamilyToday.render();
+        }, 60 * 1000);
 
         // Coming back to the page (e.g. switching apps on a phone) pulls in the other person's changes.
         document.addEventListener("visibilitychange", () => {
@@ -1951,5 +2038,6 @@
     <script src="tags.js"></script>
     <script src="kids.js"></script>
     <script src="school.js"></script>
+    <script src="today.js"></script>
 </body>
 </html>

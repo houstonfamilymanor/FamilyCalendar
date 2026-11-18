@@ -135,8 +135,37 @@
         });
     }
 
+    /**
+     * One kid-by-kid summary of a single day ("yyyy-mm-dd") for the Today page:
+     * [{ id, name, letter: {label, meaning}|null, lunch: describeLunch()|null, events: [...], errors, pending }]
+     * Unlike the calendar, this ignores the chip filters: Today always shows everything.
+     */
+    function kidDay(data, date) {
+        const timeOf = ev => ev.allDay ? "" : String(ev.start);
+        return (data.kids || []).map(kid => {
+            const meanings = parseMeanings(kid.letterMeanings);
+            const l = kid.letterCal && (data.letters || []).find(d => d.cal === kid.letterCal && d.date === date);
+            const x = l ? letterOf(l.label) : null;
+            const m = kid.menuFeed && (data.lunch || []).find(d => d.feed === kid.menuFeed && d.date === date);
+            const lunch = m ? describeLunch(m) : null;
+            const events = !kid.eventsFeed ? [] : (data.events || []).filter(ev => {
+                if (ev.feed !== kid.eventsFeed) return false;
+                if (!ev.allDay) return dayOf(new Date(ev.start)) === date;
+                const first = String(ev.start).slice(0, 10), last = String(ev.end || ev.start).slice(0, 10);
+                return first <= date && date <= (last > first ? last : first);
+            }).sort((a, b) => (b.allDay - a.allDay) || timeOf(a).localeCompare(timeOf(b)));
+            return {
+                id: kid.id, name: kid.name,
+                letter: l ? { label: x ? x + "-Day" : l.label, meaning: (x && meanings[x]) || "" } : null,
+                lunch: lunch && lunch.text ? lunch : null,
+                events, errors: kid.errors || {}, pending: !!kid.pending,
+                has: { lunch: !!kid.hasLunch, events: !!kid.hasEvents, letters: !!kid.hasLetters }
+            };
+        });
+    }
+
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { parseMenu, describeLunch, letterOf, parseMeanings, buildItems, dayOf };
+        module.exports = { parseMenu, describeLunch, letterOf, parseMeanings, buildItems, dayOf, kidDay };
         return;
     }
 
@@ -166,7 +195,9 @@
         }, 8000);
     }
 
+    let arrived = false;              // true once the first answer is in (the Today page shows "Loading…" until then)
     function setState(res) {
+        if (res && res.kids) arrived = true;
         data = res && res.kids ? res : data;
         if (busy(data)) poll();
         const chips = [];
@@ -186,6 +217,7 @@
                 .then(setState)
                 .catch(err => {
                     loaded = null;
+                    arrived = true;
                     data.kids = data.kids.map(k => ({ ...k, errors: { lunch: err.message, events: err.message } }));
                     renderSettings();
                 });
@@ -208,14 +240,14 @@
         redraw();
     }
 
-    /** Troubleshooting lines for kids whose chip is on but whose feed can't be read. */
-    function trouble() {
+    /** Troubleshooting lines for kids whose feed can't be read (only chips that are on, unless `all`). */
+    function trouble(all) {
         const out = [];
         for (const k of data.kids) {
             const e = k.errors || {};
-            if (e.lunch && FamilyTags.isOnId("_lunch:" + k.id)) out.push(`${TROUBLE_MENU} (${k.name}: ${e.lunch})`);
+            if (e.lunch && (all || FamilyTags.isOnId("_lunch:" + k.id))) out.push(`${TROUBLE_MENU} (${k.name}: ${e.lunch})`);
             const s = [e.events && "events: " + e.events, e.letters && "letter days: " + e.letters].filter(Boolean).join("; ");
-            if (s && FamilyTags.isOnId("_school:" + k.id)) out.push(`${TROUBLE_SCHOOL} (${k.name}: ${s})`);
+            if (s && (all || FamilyTags.isOnId("_school:" + k.id))) out.push(`${TROUBLE_SCHOOL} (${k.name}: ${s})`);
         }
         return out;
     }
@@ -410,5 +442,8 @@
     });
     el("kids-check").addEventListener("click", () => send({ action: "school.sync" }));
 
-    root.FamilyKids = { ready, reload, calendarSource, dashboardItems, show, trouble };
+    /** Today page: null until the school data has arrived, then one entry per kid. */
+    const today = () => arrived ? kidDay(data, ymd(new Date())) : null;
+
+    root.FamilyKids = { ready, reload, calendarSource, dashboardItems, show, trouble, today, titleCase };
 })(typeof window !== "undefined" ? window : globalThis);
