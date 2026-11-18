@@ -20,6 +20,9 @@
     let openId = null;
     const calendarHits = {};          // mailId -> Set of suggestion indexes already on the calendar
 
+    // Dismissed emails (last 30 days), read live from Gmail; the Sheet only keeps their links.
+    let dismissedMail = [], dismissedLoaded = false, dismissedLoading = null, keepDays = 30, openDismissed = null;
+
     // Per-device memory of dismissed suggestions ("mailId:index").
     let dismissed = new Set();
     try { dismissed = new Set(JSON.parse(localStorage.getItem("school-dismissed") || "[]")); } catch (e) {}
@@ -135,6 +138,7 @@
                 apply(await api("GET", { what: "mail" }));
                 el("school-error").textContent = "";
                 if (Date.now() - lastSync > AUTO_SYNC_AFTER) syncNow();
+                if (!dismissedLoaded) loadDismissed();
             } catch (err) {
                 el("school-error").textContent = "Couldn't load school email: " + err.message;
             } finally {
@@ -142,6 +146,38 @@
             }
         })();
         return loading;
+    }
+
+    /** The Dismissed list, fetched in the background (each one is read from Gmail, so it's slower). */
+    async function loadDismissed() {
+        if (dismissedLoading) return dismissedLoading;
+        dismissedLoading = (async () => {
+            try {
+                const res = await api("GET", { what: "dismissed" });
+                dismissedMail = res.dismissed || [];
+                keepDays = res.keepDays || keepDays;
+                dismissedLoaded = true;
+                render();
+            } catch (err) {
+                if (filter === "dismissed") el("school-error").textContent = "Couldn't load dismissed email: " + err.message;
+            } finally {
+                dismissedLoading = null;
+            }
+        })();
+        return dismissedLoading;
+    }
+
+    async function restoreMail(d, btn) {
+        if (btn) { btn.disabled = true; btn.textContent = "Restoring…"; }
+        try {
+            apply(await api("POST", { action: "mail.undismiss", ids: [d.id] }));
+            dismissedMail = dismissedMail.filter(x => x !== d);
+            render();
+            showToast("Email restored to the School tab.");
+        } catch (err) {
+            showToast("Couldn't restore: " + err.message);
+            if (btn) { btn.disabled = false; btn.textContent = "Restore"; }
+        }
     }
 
     let syncing = false;
@@ -180,10 +216,10 @@
         showToast("Email dismissed. It's still in Gmail.", async () => {
             mail.splice(Math.max(0, at), 0, m);
             render();
-            try { await api("POST", { action: "mail.undismiss", ids: [m.id] }); }
+            try { await api("POST", { action: "mail.undismiss", ids: [m.id] }); loadDismissed(); }
             catch (err) { el("school-error").textContent = "Couldn't undo: " + err.message; load(); }
         });
-        try { await api("POST", { action: "mail.dismiss", ids: [m.id] }); }
+        try { await api("POST", { action: "mail.dismiss", ids: [m.id] }); loadDismissed(); }
         catch (err) { el("school-error").textContent = "Couldn't save: " + err.message; load(); }
     }
 
@@ -230,7 +266,8 @@
             ...categories.filter(c => count(c.id)).map(c => ["cat:" + c.id, c.id === "meal" ? `${c.label} (${count(c.id)})` : c.label]),
             ["unread", "Unread"], ["teachers", "Teachers"],
             ["attach", "✨ Has attachment"], ["files", "📎 Files"],
-            ...kids().map(k => ["kid:" + k, k])];
+            ...kids().map(k => ["kid:" + k, k]),
+            ["dismissed", dismissedLoaded && dismissedMail.length ? `🗑 Dismissed (${dismissedMail.length})` : "🗑 Dismissed"]];
         el("school-filters").innerHTML = opts.map(([v, label]) =>
             `<button type="button" class="chip" data-filter="${escapeHtml(v)}" aria-pressed="${filter === v}">${escapeHtml(label)}</button>`).join("");
         el("school-sync-text").textContent = lastSync ? `Checked ${ago(lastSync)}` : "";
@@ -248,6 +285,11 @@
         if (!loaded) return;
         renderFilters();
         updateBadge();
+
+        if (filter === "dismissed") {
+            el("school-list").innerHTML = dismissedHtml();
+            return;
+        }
 
         if (filter === "files") {
             const rows = mail.flatMap(m => (m.attachments || []).map((a, i) => fileRow(m, a, i, true)));
@@ -345,6 +387,48 @@
             </article>`;
         }).join("");
         hydrateFrames();
+    }
+
+    /** Dismissed view: only a link is kept, so each email here was just read from Gmail. */
+    function dismissedHtml() {
+        if (!dismissedLoaded) return `<p class="empty">Loading dismissed email from Gmail…</p>`;
+        const help = `<p class="roster-help dismissed-help">Emails you dismissed in the last ${keepDays} days. The app keeps only a link to each one, and the link deletes itself after ${keepDays} days. The emails stay in Gmail either way.</p>`;
+        if (!dismissedMail.length) return help + `<p class="empty">Nothing dismissed in the last ${keepDays} days.</p>`;
+        return help + dismissedMail.map(d => {
+            const daysLeft = Math.max(0, Math.ceil((d.expiresAt - Date.now()) / DAY));
+            const open = openDismissed === d.id;
+            const gmail = `<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener">Open in Gmail ↗</a>`;
+            const meta = `<span class="mail-when">dismissed ${escapeHtml(ago(d.dismissedAt))} · link expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}</span>`;
+            if (d.missing) {
+                return `<article class="mail dismissed-mail" data-dis="${escapeHtml(d.id)}">
+                    <div class="mail-head"><div class="mail-main">
+                        <div class="mail-from"><strong>No longer in Gmail</strong> ${meta}</div>
+                        <div class="mail-subject">This email was deleted from the family Gmail.</div>
+                    </div></div>
+                </article>`;
+            }
+            const excerpt = P.stripLinks(d.body || "").replace(/\s+/g, " ").trim().slice(0, 220);
+            return `
+            <article class="mail dismissed-mail" data-dis="${escapeHtml(d.id)}">
+                <div class="mail-head" data-act="toggle">
+                    <div class="mail-main">
+                        <div class="mail-from">
+                            <strong>${escapeHtml(titleCase(d.fromName) || d.fromEmail)}</strong>
+                            <span class="mail-when">${escapeHtml(ago(d.date))}</span>
+                        </div>
+                        <div class="mail-subject">${escapeHtml(d.subject || "(no subject)")}</div>
+                        ${open ? "" : `<div class="mail-excerpt">${escapeHtml(excerpt)}</div>`}
+                        <div class="dismissed-meta">${meta}</div>
+                    </div>
+                </div>
+                ${open ? `<div class="mail-body"><div class="mail-text">${textHtml(d.body)}</div></div>` : ""}
+                <div class="mail-actions">
+                    <button class="btn-sm" data-act="restore">Restore</button>
+                    <button class="btn-sm btn-secondary" data-act="toggle">${open ? "Hide" : "Read"}</button>
+                    ${gmail}
+                </div>
+            </article>`;
+        }).join("");
     }
 
     // ---------- showing an email the way Gmail would ----------
@@ -536,7 +620,7 @@
         mail = mail.filter(x => !ids.includes(x.id));
         openId = null;
         render();
-        try { await api("POST", { action: "mail.dismiss", ids }); }
+        try { await api("POST", { action: "mail.dismiss", ids }); loadDismissed(); }
         catch (err) { el("school-error").textContent = "Couldn't save: " + err.message; load(); }
     }
 
@@ -624,6 +708,7 @@
         const b = e.target.closest("[data-filter]");
         if (!b) return;
         filter = b.dataset.filter;
+        if (filter === "dismissed") loadDismissed();     // pick up dismissals from the other phone
         render();
     });
     el("school-sync-btn").addEventListener("click", syncNow);
@@ -635,6 +720,16 @@
             const row = fileBtn.closest("[data-file]");
             const fm = mail.find(x => x.id === row.dataset.mail);
             if (fm) openFile(fm, Number(row.dataset.file), fileBtn.dataset.act === "file-dl" ? "dl" : "view", fileBtn);
+            return;
+        }
+        const disCard = e.target.closest("[data-dis]");
+        if (disCard) {
+            if (e.target.closest("a")) return;
+            const d = dismissedMail.find(x => x.id === disCard.dataset.dis);
+            const dact = e.target.closest("[data-act]");
+            if (!d || !dact) return;
+            if (dact.dataset.act === "restore") restoreMail(d, dact);
+            else if (dact.dataset.act === "toggle") { openDismissed = openDismissed === d.id ? null : d.id; render(); }
             return;
         }
         const card = e.target.closest("[data-mail]");

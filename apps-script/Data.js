@@ -18,6 +18,10 @@ var TABLES = {
   // School inbox (Mail.js)
   // attachments: file names, one per line; "" = not checked yet (older rows get backfilled)
   Mail: ['id', 'threadId', 'fromName', 'fromEmail', 'subject', 'date', 'body', 'read', 'dismissed', 'link', 'importedAt', 'attachments'],
+  // Dismissed school emails: NOT the email, only its Gmail id + link, shown live from Gmail
+  // for 30 days, then the link is erased (the bare id stays a little longer so the 45-day
+  // sync doesn't import the same email again, then that goes too). See Mail.js.
+  Dismissed: ['id', 'link', 'dismissedAt'],
   Roster: ['id', 'name', 'kid', 'order'],
   // Sender categories: emails whose sender contains `match` go to `label`.
   // kind: "group" (own filter, no event suggestions) or "meal" (balance alert card).

@@ -54,11 +54,13 @@ function syncMail_() {
   try {
     var props = PropertiesService.getScriptProperties();
     var queries = mailQueries_();
+    tidyDismissed_();                                 // first: it deletes rows, which shifts row numbers
     var known = {}, unchecked = [];
     readTable_('Mail').forEach(function (m) {
       known[m.id] = true;
       if (!m.attachments) unchecked.push(m);          // imported before attachments were tracked
     });
+    readTable_('Dismissed').forEach(function (d) { known[d.id] = true; });   // dismissed: don't re-import
     var account = Session.getEffectiveUser().getEmail();
 
     // Page through results: Gmail returns newest first, so already-imported mail fills the
@@ -80,21 +82,7 @@ function syncMail_() {
         var id = msg.getId();
         if (known[id]) return;
         known[id] = true;
-        var m = describeMessage_(msg);
-        rows.push(rowValues_('Mail', {
-          id: id,
-          threadId: msg.getThread().getId(),
-          fromName: m.fromName,
-          fromEmail: m.fromEmail,
-          subject: m.subject,
-          date: String(m.date.getTime()),
-          body: m.body.slice(0, MAIL_BODY_MAX),
-          read: 'false',
-          dismissed: '',
-          link: 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(account) + '#all/' + id,
-          importedAt: String(Date.now()),
-          attachments: attachmentNames_(msg)
-        }));
+        rows.push(rowValues_('Mail', mailRow_(msg, account)));
       });
     });
 
@@ -121,6 +109,146 @@ function syncMail_() {
 }
 
 var NO_ATTACHMENTS = '(none)';
+
+/** The stored Mail row for one Gmail message. */
+function mailRow_(msg, account) {
+  var id = msg.getId();
+  var m = describeMessage_(msg);
+  return {
+    id: id,
+    threadId: msg.getThread().getId(),
+    fromName: m.fromName,
+    fromEmail: m.fromEmail,
+    subject: m.subject,
+    date: String(m.date.getTime()),
+    body: m.body.slice(0, MAIL_BODY_MAX),
+    read: 'false',
+    dismissed: '',
+    link: gmailLink_(id, account),
+    importedAt: String(Date.now()),
+    attachments: attachmentNames_(msg)
+  };
+}
+
+function gmailLink_(id, account) {
+  return 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(account || Session.getEffectiveUser().getEmail()) + '#all/' + id;
+}
+
+/** Same email arriving more than once (hand forward, history copy...) shares this key. */
+function mailKey_(m) {
+  return m.fromEmail + '|' + m.subject + '|' + Math.round(Number(m.date) / 120000);
+}
+
+// ---------- dismissed ----------
+// Dismissing an email removes its stored copy (text, subject, sender) from the Sheet and
+// keeps only its Gmail id + link. The Dismissed view reads it live from Gmail. After
+// DISMISS_SHOW_DAYS the link is erased; the bare id is kept until DISMISS_FORGET_DAYS only
+// so the sync (which looks back 45 days) doesn't import the same email again.
+var DISMISS_SHOW_DAYS = 30;
+var DISMISS_FORGET_DAYS = 60;
+
+/** Move emails (and their duplicate copies) from Mail to Dismissed. Caller holds the lock. */
+function dismissMail_(ids) {
+  var want = {};
+  ids.forEach(function (id) { want[String(id)] = true; });
+  var rows = readTable_('Mail');
+  var keys = {};
+  rows.forEach(function (r) { if (want[r.id]) keys[mailKey_(r)] = true; });
+  var gone = rows.filter(function (r) { return want[r.id] || keys[mailKey_(r)]; });
+  if (!gone.length) return;
+  var already = {};
+  readTable_('Dismissed').forEach(function (d) { already[d.id] = true; });
+  var now = String(Date.now());
+  var add = gone.filter(function (r) { return !already[r.id]; }).map(function (r) {
+    return rowValues_('Dismissed', { id: r.id, link: r.link || gmailLink_(r.id), dismissedAt: now });
+  });
+  if (add.length) {
+    var sh = sheet_('Dismissed');
+    sh.getRange(sh.getLastRow() + 1, 1, add.length, TABLES.Dismissed.length).setNumberFormat('@').setValues(add);
+  }
+  deleteRows_('Mail', gone);
+}
+
+/** Bring dismissed emails back: re-read them from Gmail into Mail. Caller holds the lock. */
+function restoreMail_(ids) {
+  var want = {};
+  ids.forEach(function (id) { want[String(id)] = true; });
+  var rows = readTable_('Dismissed').filter(function (d) { return want[d.id]; });
+  var have = {};
+  readTable_('Mail').forEach(function (m) { have[m.id] = true; });
+  var account = Session.getEffectiveUser().getEmail();
+  var add = [], missing = 0;
+  rows.forEach(function (d) {
+    if (have[d.id]) return;
+    var msg = null;
+    try { msg = GmailApp.getMessageById(d.id); } catch (e) { /* deleted from Gmail */ }
+    if (!msg) { missing++; return; }
+    var row = mailRow_(msg, account);
+    row.read = 'true';
+    add.push(rowValues_('Mail', row));
+  });
+  if (add.length) {
+    var sh = sheet_('Mail');
+    sh.getRange(sh.getLastRow() + 1, 1, add.length, TABLES.Mail.length).setNumberFormat('@').setValues(add);
+  }
+  deleteRows_('Dismissed', rows);
+  if (missing && !add.length) throw new Error('That email is no longer in Gmail');
+}
+
+/**
+ * Housekeeping, caller holds the lock: moves rows dismissed the old way (flag on the Mail
+ * row, full text kept) to Dismissed, erases links older than 30 days, forgets old ids.
+ */
+function tidyDismissed_() {
+  var old = readTable_('Mail').filter(function (m) { return m.dismissed === 'true'; });
+  if (old.length) dismissMail_(old.map(function (m) { return m.id; }));
+  var now = Date.now(), forget = [];
+  readTable_('Dismissed').forEach(function (d) {
+    var age = now - Number(d.dismissedAt || 0);
+    if (age > DISMISS_FORGET_DAYS * DAY_MS) forget.push(d);
+    else if (age > DISMISS_SHOW_DAYS * DAY_MS && d.link) { d.link = ''; writeRow_('Dismissed', d); }
+  });
+  if (forget.length) deleteRows_('Dismissed', forget);
+}
+
+/** The Dismissed view: each email read live from Gmail (nothing of it is stored). */
+function getDismissed_() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  var rows;
+  try {
+    tidyDismissed_();
+    rows = readTable_('Dismissed').filter(function (d) { return d.link; });
+  } finally {
+    lock.releaseLock();
+  }
+  rows.sort(function (a, b) { return Number(b.dismissedAt) - Number(a.dismissedAt); });
+  return {
+    keepDays: DISMISS_SHOW_DAYS,
+    dismissed: rows.slice(0, 100).map(function (d) {
+      var out = {
+        id: d.id, link: d.link, dismissedAt: Number(d.dismissedAt),
+        expiresAt: Number(d.dismissedAt) + DISMISS_SHOW_DAYS * DAY_MS
+      };
+      var msg = null;
+      try { msg = GmailApp.getMessageById(d.id); } catch (e) { /* deleted from Gmail */ }
+      if (!msg) { out.missing = true; return out; }
+      var m = describeMessage_(msg);
+      out.fromName = m.fromName;
+      out.fromEmail = m.fromEmail;
+      out.subject = m.subject;
+      out.date = m.date.getTime();
+      out.body = m.body.slice(0, 8000);
+      return out;
+    })
+  };
+}
+
+/** Is this an email the page may open (in the School tab, or dismissed within 30 days)? */
+function isKnownMail_(id) {
+  return readTable_('Mail').some(function (r) { return r.id === id; }) ||
+    readTable_('Dismissed').some(function (d) { return d.id === id && d.link; });
+}
 
 /** Real attachments (not inline logos/signature images), one file name per line. */
 function attachmentNames_(msg) {
@@ -177,7 +305,7 @@ function getMail_() {
     .filter(function (m, i, all) {
       // The same email can arrive more than once (forwarded by hand, copied by the history
       // tool, re-copied with attachments). Show one, preferring the copy that has the files.
-      var key = function (x) { return x.fromEmail + '|' + x.subject + '|' + Math.round(Number(x.date) / 120000); };
+      var key = mailKey_;
       var hasFiles = function (x) { return x.attachments && x.attachments !== NO_ATTACHMENTS; };
       var k = key(m);
       for (var j = 0; j < all.length; j++) {
@@ -217,8 +345,7 @@ function getMail_() {
 function getMailHtml_(id) {
   id = String(id || '');
   if (!/^[0-9a-f]{8,32}$/i.test(id)) throw new Error('Bad email id');
-  var row = readTable_('Mail').filter(function (r) { return r.id === id; })[0];
-  if (!row) throw new Error('Not a school email');
+  if (!isKnownMail_(id)) throw new Error('Not a school email');
   var msg = GmailApp.getMessageById(id);
   var html = msg ? String(msg.getBody() || '') : '';
   if (!/<(?:html|body|div|table|p|br|span|a)\b/i.test(html)) return { html: '' };
@@ -237,7 +364,7 @@ var MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 function getAttachment_(id, i) {
   id = String(id || '');
   if (!/^[0-9a-f]{8,32}$/i.test(id)) throw new Error('Bad email id');
-  if (!readTable_('Mail').some(function (r) { return r.id === id; })) throw new Error('Not a school email');
+  if (!isKnownMail_(id)) throw new Error('Not a school email');
   var msg = GmailApp.getMessageById(id);
   var f = msg ? msg.getAttachments({ includeInlineImages: false })[Number(i)] : null;
   if (!f) throw new Error('Attachment not found');
@@ -261,16 +388,19 @@ function mutateMail_(d) {
   var lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    if (d.action === 'mail.read' || d.action === 'mail.dismiss' || d.action === 'mail.undismiss') {
+    if (d.action === 'mail.read') {
       var rows = readTable_('Mail');
       var ids = {};
       (d.ids || []).forEach(function (id) { ids[String(id)] = true; });
       rows.forEach(function (r) {
         if (!ids[r.id]) return;
-        if (d.action === 'mail.read') r.read = String(d.read !== false);
-        else r.dismissed = d.action === 'mail.dismiss' ? 'true' : '';   // dismiss = hidden in the app only; Gmail keeps it
+        r.read = String(d.read !== false);
         writeRow_('Mail', r);
       });
+    } else if (d.action === 'mail.dismiss') {
+      dismissMail_((d.ids || []).slice(0, 200));       // hidden in the app only; Gmail keeps it
+    } else if (d.action === 'mail.undismiss') {
+      restoreMail_((d.ids || []).slice(0, 200));
     } else if (d.action === 'roster.save') {
       // Replace the whole roster: [{ name, kid }]
       var list = (d.rows || []).slice(0, 100).map(function (r, i) {
