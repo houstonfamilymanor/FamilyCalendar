@@ -78,5 +78,12 @@ check("today: multi-day + timed in order, all-day first", K.kidDay(multi, "2030-
 check("today: no feeds set up -> empty, no crash", K.kidDay({ kids: [{ id: "k", name: "Sam" }], lunch: [{ date: "2030-01-07", lunch: typical }] }, "2030-01-07")[0],
     { id: "k", name: "Sam", letter: null, lunch: null, events: [], errors: {}, pending: false, has: { lunch: false, events: false, letters: false } });
 
+// ----- weekly cache -----
+const saved = { at: new Date(2030, 0, 8, 9).getTime(), res: { kids: [] } };
+check("cache: 6 days later -> still use it", K.cacheFresh(saved, new Date(2030, 0, 14, 8)), true);
+check("cache: 7 days later -> ask the server", K.cacheFresh(saved, new Date(2030, 0, 15, 9)), false);
+check("cache: clock went backwards -> ask the server", K.cacheFresh(saved, new Date(2030, 0, 7)), false);
+check("cache: nothing saved", K.cacheFresh(null, new Date()), false);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

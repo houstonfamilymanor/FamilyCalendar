@@ -19,14 +19,18 @@
  * The school sites are NEVER read inside a page request (Apps Script can't time out a
  * slow fetch, and one stuck request used to freeze the app). Reading happens in the
  * background: a one-off trigger right after Save / "Check now", and an hourly trigger
- * (each kid at most every SCHOOL_REFRESH_HOURS). All feeds are fetched in parallel, and
- * each run's start/end/duration is kept so the page can show progress or a stuck run.
+ * that reads each school ONCE A WEEK: a good read is stamped and that school isn't read
+ * again for SCHOOL_REFRESH_DAYS (menus, events and letter days are all posted a week or
+ * more ahead). Only a read that failed is tried again sooner (every SCHOOL_RETRY_HOURS).
+ * All feeds are fetched in parallel, and each run's start/end/duration is kept so the
+ * page can show progress or a stuck run.
  */
 
-var SCHOOL_REFRESH_HOURS = 24;  // be polite to the school sites: one read a day (plus Save / Check now)
+var SCHOOL_REFRESH_DAYS = 7;    // be polite to the school sites: one good read a week (plus Save / Check now)
+var SCHOOL_RETRY_HOURS = 6;     // a failed read is tried again this often
 var SCHOOL_KEEP_PAST_DAYS = 14;
 var SCHOOL_AHEAD_DAYS = 120;
-var SCHOOL_STALE_DAYS = 4;      // no successful read for this long = show the troubleshooting note
+var SCHOOL_STALE_DAYS = 9;      // no successful read for this long = show the troubleshooting note
 var SCHOOL_STUCK_MINUTES = 8;   // a background run older than this never finished
 var MENU_PAGES = 4;
 var EVENT_PAGES = 6;
@@ -177,17 +181,26 @@ function replaceFeedRows_(table, feedCol, fresh, readFeeds, usedFeeds, cutoff, t
 }
 
 /**
- * Re-read feeds for kids not refreshed in SCHOOL_REFRESH_HOURS (all when force). Kids
- * whose school link is new are first looked up to find their feeds. Feeds two kids share
- * are read once; everything is fetched in two parallel rounds (sites, then feeds).
+ * Does this kid's school need reading? A good read is stamped (lastOk) and the school
+ * isn't read again until SCHOOL_REFRESH_DAYS later. A read that failed is retried every
+ * SCHOOL_RETRY_HOURS until one works.
+ */
+function schoolDue_(k, now) {
+  if (!k.lastTry) return true;
+  if (k.lastOk && now - Number(k.lastOk) < SCHOOL_REFRESH_DAYS * DAY_MS) return false;   // checked this week
+  return now - Number(k.lastTry) >= SCHOOL_RETRY_HOURS * 3600000;
+}
+
+/**
+ * Re-read feeds for kids that are due (all when force). Kids whose school link is new are
+ * first looked up to find their feeds. Feeds two kids share are read once; everything is
+ * fetched in two parallel rounds (sites, then feeds).
  */
 function syncSchools_(force) {
   var props = PropertiesService.getScriptProperties();
   var now = Date.now();
   var kids = readTable_('Kids');
-  var due = kids.filter(function (k) {
-    return force || !k.lastTry || now - Number(k.lastTry) >= SCHOOL_REFRESH_HOURS * 3600000;
-  });
+  var due = kids.filter(function (k) { return force || schoolDue_(k, now); });
   if (!due.length) return;
   props.setProperty('SCHOOL_RUN_START', String(now));
 

@@ -164,8 +164,12 @@
         });
     }
 
+    /** Is this device's saved copy still good? Stamped when saved; good for 7 days. */
+    const CACHE_MAX_MS = 7 * 24 * 3600 * 1000;
+    const cacheFresh = (c, now) => !!(c && c.res && c.res.kids && now - c.at >= 0 && now - c.at < CACHE_MAX_MS);
+
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { parseMenu, describeLunch, letterOf, parseMeanings, buildItems, dayOf, kidDay };
+        module.exports = { parseMenu, describeLunch, letterOf, parseMeanings, buildItems, dayOf, kidDay, cacheFresh };
         return;
     }
 
@@ -187,6 +191,7 @@
             try {
                 const res = await api("GET", { what: "school" });
                 setState(res);
+                saveCache(res);
                 if (!busy(res) || Date.now() - started > 9 * 60000) {
                     clearInterval(polling); polling = null;
                     redraw();
@@ -210,13 +215,33 @@
         renderSettings();
     }
 
-    /** Loads once per sign-in; the calendar and Today panel wait on this. */
-    function ready() {
+    // A copy of the school data is kept on this device, stamped when saved, and the server
+    // isn't asked again for 7 days (opening Settings, Save and Check now always ask).
+    const CACHE_KEY = "school-cache";
+    function loadCache() {
+        try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); return cacheFresh(c, new Date()) ? c.res : null; }
+        catch (e) { return null; }
+    }
+    function saveCache(res) {
+        try {
+            if (res && res.kids && !busy(res)) localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), res }));
+            else localStorage.removeItem(CACHE_KEY);
+        } catch (e) { /* storage full or blocked: just ask the server next time */ }
+    }
+
+    /** Loads once per sign-in (from this device's copy when it's fresh); the calendar and Today wait on this. */
+    function ready(fresh) {
+        if (!loaded && !fresh) {
+            const cached = loadCache();
+            if (cached) loaded = Promise.resolve(setState(cached));
+        }
         if (!loaded) {
             loaded = api("GET", { what: "school" })
-                .then(setState)
+                .then(res => { setState(res); saveCache(res); })
                 .catch(err => {
                     loaded = null;
+                    // Server unreachable: an older saved copy (any age) beats an empty page.
+                    try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); if (c && c.res && c.res.kids) { setState(c.res); return; } } catch (e) {}
                     arrived = true;
                     data.kids = data.kids.map(k => ({ ...k, errors: { lunch: err.message, events: err.message } }));
                     renderSettings();
@@ -236,7 +261,7 @@
 
     async function reload() {
         loaded = null;
-        await ready();
+        await ready(true);
         redraw();
     }
 
@@ -423,6 +448,7 @@
             if (el("kids").contains(document.activeElement)) document.activeElement.blur();
             const res = await api("POST", payload);
             setState(res);
+            saveCache(res);
             loaded = Promise.resolve();
             redraw();
             el("kids-msg").textContent = busy(res) ? "Saved. Reading the school sites in the background…" : "Saved.";
