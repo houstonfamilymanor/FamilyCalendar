@@ -297,13 +297,25 @@ function syncSchoolsSoon() {
   var props = PropertiesService.getScriptProperties();
   var force = props.getProperty('SCHOOL_FORCE') === '1';
   props.deleteProperty('SCHOOL_FORCE');
-  props.deleteProperty('SCHOOL_QUEUED');
-  syncSchools_(force);
+  runSchoolSync_(force);
 }
 
 /** Hourly trigger handler. */
 function syncSchoolsHourly() {
-  syncSchools_(false);
+  runSchoolSync_(false);
+}
+
+/** Run a sync, keeping any crash where the page can show it (triggers have no one watching). */
+function runSchoolSync_(force) {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('SCHOOL_PICKED_UP', String(Date.now()));     // whatever was queued is being handled now
+  try {
+    syncSchools_(force);
+    props.deleteProperty('SCHOOL_RUN_ERROR');
+  } catch (err) {
+    props.setProperty('SCHOOL_RUN_ERROR', String(err && err.message || err).slice(0, 300));
+    props.setProperty('SCHOOL_RUN_END', String(Date.now()));
+  }
 }
 
 /** Ask for a background read in a few seconds (once; repeated asks share it). */
@@ -315,7 +327,8 @@ function queueSchoolSync_(force) {
   if (!pending || Date.now() - queued > SCHOOL_STUCK_MINUTES * 60000) {
     ScriptApp.newTrigger('syncSchoolsSoon').timeBased().after(1000).create();
   }
-  props.setProperty('SCHOOL_QUEUED', String(Date.now()));
+  // Always later than the last pick-up, so the page can tell a new request is waiting.
+  props.setProperty('SCHOOL_QUEUED', String(Math.max(Date.now(), Number(props.getProperty('SCHOOL_PICKED_UP') || 0) + 1)));
   if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'syncSchoolsHourly'; })) {
     ScriptApp.newTrigger('syncSchoolsHourly').timeBased().everyHours(1).create();
   }
@@ -330,18 +343,25 @@ function getSchools_() {
     queued: Number(props.getProperty('SCHOOL_QUEUED') || 0),
     start: Number(props.getProperty('SCHOOL_RUN_START') || 0),
     end: Number(props.getProperty('SCHOOL_RUN_END') || 0),
-    ms: Number(props.getProperty('SCHOOL_RUN_MS') || 0)
+    ms: Number(props.getProperty('SCHOOL_RUN_MS') || 0),
+    pickedUp: Number(props.getProperty('SCHOOL_PICKED_UP') || 0),
+    error: props.getProperty('SCHOOL_RUN_ERROR') || '',
+    now: Date.now()
   };
   run.running = run.start > run.end;
-  run.stuck = run.running && Date.now() - run.start > SCHOOL_STUCK_MINUTES * 60000;
-  run.waiting = !run.running && run.queued > run.end;
+  run.waiting = !run.running && run.queued > Math.max(run.end, run.pickedUp);
+  // Stuck: a run that started and never finished, or a queued read the trigger never picked up.
+  run.stuck = (run.running && Date.now() - run.start > SCHOOL_STUCK_MINUTES * 60000) ||
+    (run.waiting && Date.now() - run.queued > SCHOOL_STUCK_MINUTES * 60000);
   var kids = readTable_('Kids')
     .sort(function (a, b) { return Number(a.order) - Number(b.order); })
     .map(function (k) {
       var err = {};
       try { err = k.error ? JSON.parse(k.error) : {}; } catch (e) { err = { lunch: k.error }; }
       var lastOk = Number(k.lastOk || 0);
-      var why = run.stuck ? 'the school sites didn\'t answer the server' : '';
+      var why = run.error && !run.running && !run.waiting ? 'the background read failed: ' + run.error
+        : run.stuck ? (run.running ? 'the school sites didn\'t answer the server' : 'the background read never started')
+        : '';
       if (!why && !Object.keys(err).length && k.lastTry && Date.now() - lastOk > SCHOOL_STALE_DAYS * DAY_MS) {
         why = 'hasn\'t updated in over ' + SCHOOL_STALE_DAYS + ' days';
       }
@@ -409,7 +429,14 @@ function mutateSchools_(d) {
     });
     if (rows.some(function (r) { return !r.lastTry; })) queueSchoolSync_(false);
   } else if (d.action === 'school.sync') {
-    queueSchoolSync_(true);
+    var p = PropertiesService.getScriptProperties();
+    var queued = Number(p.getProperty('SCHOOL_QUEUED') || 0);
+    var picked = Math.max(Number(p.getProperty('SCHOOL_PICKED_UP') || 0), Number(p.getProperty('SCHOOL_RUN_START') || 0));
+    if (queued > picked && Date.now() - queued > 2 * 60000) {
+      runSchoolSync_(true);            // the background read never started: do it now (parallel, a few seconds)
+    } else {
+      queueSchoolSync_(true);
+    }
   } else {
     throw new Error('Unknown action');
   }

@@ -334,7 +334,13 @@
 
     function statusLines(k) {
         if (!k.id) return "";
-        if (k.pending && busy(data)) return "⏳ Reading the school sites in the background… (this updates by itself)";
+        if (k.pending && busy(data)) {
+            const r = data.run, secs = t => Math.max(0, Math.round((r.now - t) / 1000));
+            const fmt = s => s < 90 ? s + "s" : Math.round(s / 60) + " min";
+            return r.running ? `⏳ Reading the school sites… (${fmt(secs(r.start))} so far, updates by itself)`
+                : `⏳ Waiting for the background read to start (queued ${fmt(secs(r.queued))} ago, updates by itself` +
+                  (secs(r.queued) > 120 ? "; tap Check now to read right away)" : ")");
+        }
         const e = k.errors || {};
         const today = ymd(new Date());
         const count = (list, match) => list.filter(x => match(x) && (x.date || x.start || "").slice(0, 10) >= today).length;
