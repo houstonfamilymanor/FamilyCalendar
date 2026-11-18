@@ -22,6 +22,9 @@ var TABLES = {
   // for 30 days, then the link is erased (the bare id stays a little longer so the 45-day
   // sync doesn't import the same email again, then that goes too). See Mail.js.
   Dismissed: ['id', 'link', 'dismissedAt'],
+  // Event tags (Tags.js)
+  Tags: ['id', 'name', 'color', 'hidden', 'order'],
+  EventTags: ['id', 'tags', 'updatedAt'],
   Roster: ['id', 'name', 'kid', 'order'],
   // Sender categories: emails whose sender contains `match` go to `label`.
   // kind: "group" (own filter, no event suggestions) or "meal" (balance alert card).

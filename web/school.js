@@ -795,6 +795,7 @@
         renderRules();
         renderRoster();
         load();                          // pick up edits made on the other phone
+        if (window.FamilyTags) FamilyTags.reload();
     }
     function closeSettings() { el("settings").style.display = "none"; }
 

@@ -735,6 +735,26 @@
 
         .roster { margin-top: 20px; }
         .roster + .roster { margin-top: 12px; }
+        /* event tags */
+        .tag-filters { align-items: center; margin-bottom: 10px; }
+        .tag-filters-label { font-size: 0.8rem; color: var(--text-secondary); margin-right: 2px; }
+        .tag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tag); margin-right: 6px; vertical-align: 1px; }
+        .chip.tag-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--tag) 22%, transparent); border-color: var(--tag); color: var(--text); }
+        .chip.tag-chip[aria-pressed="false"] { opacity: 0.6; }
+        .chip.tag-chip.detail[aria-pressed="false"] { border-style: dashed; }
+        .chip.tag-chip[aria-pressed="true"] .tag-dot { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tag) 35%, transparent); }
+        .fc .fc-event.ev-tagged { box-shadow: inset 4px 0 0 var(--tag); }
+        .fc .fc-daygrid-dot-event.ev-tagged .fc-daygrid-event-dot { border-color: var(--tag); }
+        .ev-row.tagged { border-left-color: var(--tag); }
+        .tag-badge { font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--tag); color: var(--text-secondary); margin-left: 6px; white-space: nowrap; }
+        .tag-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .tag-row .check-row { font-size: 0.8rem; white-space: nowrap; }
+        .tag-color { width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: none; cursor: pointer; }
+        @media (max-width: 760px) {
+            .tag-row { grid-template-columns: auto 1fr auto; }
+            .tag-row .check-row { grid-column: 2; }
+        }
+
         .rule-row { display: grid; grid-template-columns: 1.3fr 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
         .rule-row .check-row { font-size: 0.8rem; white-space: nowrap; }
         @media (max-width: 760px) {
@@ -802,6 +822,7 @@
             </section>
 
             <section class="panel" id="calendar-panel">
+                <div class="list-chips tag-filters" id="tag-filters" hidden></div>
                 <div id="calendar"></div>
                 <p id="calendar-error" class="error" style="margin: 8px 4px 0;"></p>
                 <div class="legend">
@@ -894,6 +915,20 @@
                 <button type="button" class="icon-btn" id="settings-close" aria-label="Close settings">✕</button>
             </div>
             <p class="roster-help" style="margin-top: 0;">Everything here is saved in your family Google Sheet, not in the app's code.</p>
+
+            <section class="settings-section" id="tags">
+                <h4>Event tags <span id="tags-count"></span></h4>
+                <p class="roster-help">Label events (Lunch menu, Sports, Birthdays…) and turn each label on or off
+                    with the chips above the calendar. Tick <strong>Hide until turned on</strong> for detail you only
+                    want now and then, like what's for lunch: those events stay off the calendar until someone turns
+                    the tag on (each phone remembers its own choice). Deleting a tag takes it off events; the events stay.</p>
+                <div id="tags-rows"></div>
+                <div class="modal-actions" style="margin-top: 10px;">
+                    <button type="button" class="btn-sm btn-secondary" id="tags-add" style="margin-right: auto;">+ Add tag</button>
+                    <span id="tags-msg" class="roster-help"></span>
+                    <button class="btn-sm" id="tags-save">Save tags</button>
+                </div>
+            </section>
 
             <section class="settings-section" id="rules">
                 <h4>Sender categories <span id="rules-count"></span></h4>
@@ -995,6 +1030,10 @@
                 <button type="button" class="chip" data-mins="120">2 hr</button>
                 <button type="button" class="chip" id="allday-chip" aria-pressed="false">All day</button>
             </div>
+            <div class="form-group" id="tag-picker-group" hidden>
+                <label>Tags</label>
+                <div class="chips" id="tag-picker" style="margin-bottom: 0;"></div>
+            </div>
             <p id="modal-error" class="modal-error"></p>
             <div class="modal-actions">
                 <button id="delete-btn" class="btn-danger" onclick="deleteEvent()">Delete</button>
@@ -1076,6 +1115,7 @@
                 title: ev.title,
                 allDay: !!ev.allDay,
                 recurring: !!ev.recurring,
+                tags: ev.tags || [],
                 start: ev.allDay ? parseYmd(ev.start) : new Date(ev.start),
                 end: ev.allDay ? parseYmd(ev.end) : new Date(ev.end),
                 startStr: ev.start,
@@ -1093,6 +1133,7 @@
                 title: e.title,
                 allDay,
                 recurring: !!e.extendedProps.recurring,
+                tags: e.extendedProps.tags || [],
                 start, end,
                 startStr: allDay ? ymd(start) : start.toISOString(),
                 endStr: allDay ? ymd(end) : end.toISOString()
@@ -1126,15 +1167,34 @@
 
         function renderRow(ev, when) {
             const cls = ev.recurring ? "recurring" : ev.allDay ? "allday" : "";
-            return `<div class="ev-row ${cls}" data-id="${escapeHtml(ev.id)}" data-start="${ev.start.getTime()}">
+            const tagColor = FamilyTags.color(ev);
+            return `<div class="ev-row ${cls} ${tagColor ? "tagged" : ""}" data-id="${escapeHtml(ev.id)}" data-start="${ev.start.getTime()}"
+                        ${tagColor ? `style="--tag:${escapeHtml(tagColor)}"` : ""}>
                         <span class="ev-when">${escapeHtml(when)}</span>
-                        <span class="ev-title">${escapeHtml(ev.title)}</span>
+                        <span class="ev-title">${escapeHtml(ev.title)}${FamilyTags.badges(ev)}</span>
                     </div>`;
         }
 
-        let dashboardEvents = [];
+        let dashboardAll = [];       // everything in the next two weeks
+        let dashboardEvents = [];    // the ones the tag filters let through (the assistant reads these too)
 
         async function loadDashboard() {
+            const today = startOfDay(new Date());
+            try {
+                const [list] = await Promise.all([api("GET", {
+                    from: today.toISOString(),
+                    to: new Date(today.getTime() + 15 * DAY).toISOString()
+                }), FamilyTags.ready()]);
+                dashboardAll = list.map(normalize).sort((a, b) => a.start - b.start);
+            } catch (err) {
+                document.getElementById("upcoming-list").innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
+                return;
+            }
+            renderDashboard();
+        }
+
+        /** Draw Today / Coming up from the loaded events (re-run when a tag filter changes). */
+        function renderDashboard() {
             const now = new Date();
             const today = startOfDay(now);
             const tomorrow = new Date(today.getTime() + DAY);
@@ -1144,17 +1204,7 @@
             const upEl = document.getElementById("upcoming-list");
             const todayEl = document.getElementById("today-list");
             const subEl = document.getElementById("today-sub");
-
-            try {
-                const list = await api("GET", {
-                    from: today.toISOString(),
-                    to: new Date(today.getTime() + 15 * DAY).toISOString()
-                });
-                dashboardEvents = list.map(normalize).sort((a, b) => a.start - b.start);
-            } catch (err) {
-                upEl.innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
-                return;
-            }
+            dashboardEvents = dashboardAll.filter(FamilyTags.visible);
 
             // Today: anything overlapping today, all-day first.
             const todays = dashboardEvents
@@ -1226,8 +1276,9 @@
                 eventTimeFormat: { hour: "numeric", minute: "2-digit", meridiem: "short" },
 
                 events: (info, success, failure) => {
-                    api("GET", { from: info.start.toISOString(), to: info.end.toISOString() })
-                        .then(list => {
+                    // Wait for the tag list too, so hidden-by-default events never flash on screen.
+                    Promise.all([api("GET", { from: info.start.toISOString(), to: info.end.toISOString() }), FamilyTags.ready()])
+                        .then(([list]) => {
                             document.getElementById("calendar-error").textContent = "";
                             success(list.map(ev => ({
                                 id: ev.id,
@@ -1236,8 +1287,9 @@
                                 end: ev.end,
                                 allDay: ev.allDay,
                                 editable: !ev.recurring,
+                                display: FamilyTags.visible(ev) ? "auto" : "none",
                                 classNames: ev.recurring ? ["ev-recurring"] : ev.allDay ? ["ev-allday"] : [],
-                                extendedProps: { recurring: ev.recurring }
+                                extendedProps: { recurring: ev.recurring, tags: ev.tags || [], tagColor: FamilyTags.color(ev) }
                             })));
                         })
                         .catch(err => {
@@ -1276,6 +1328,13 @@
                         const end = info.end - info.start < HOUR ? new Date(info.start.getTime() + HOUR) : info.end;
                         openModal(null, { allDay: false, start: info.start, end });
                     }
+                },
+
+                // Tagged events get a stripe in their first tag's color.
+                eventClassNames: info => info.event.extendedProps.tagColor ? ["ev-tagged"] : [],
+                eventDidMount: info => {
+                    const c = info.event.extendedProps.tagColor;
+                    if (c) info.el.style.setProperty("--tag", c);
                 },
 
                 eventClick: info => openEditModal(fromCalendarEvent(info.event)),
@@ -1411,11 +1470,14 @@
 
             const readOnly = !!(ev && ev.recurring);
             ["title", "date", "last-day", "start-time", "end-time"].forEach(id => $(id).disabled = readOnly);
-            document.querySelectorAll(".chip").forEach(c => c.disabled = readOnly || (!!c.dataset.mins && isAllDay()));
-            $("save-btn").style.display = readOnly ? "none" : "";
+            document.querySelectorAll("#chips .chip").forEach(c => c.disabled = readOnly || (!!c.dataset.mins && isAllDay()));
+            FamilyTags.setPicked(ev ? ev.tags : []);       // tags stay editable on repeating events
+            $("save-btn").dataset.tagsOnly = readOnly ? "1" : "";
+            $("save-btn").textContent = readOnly ? "Save Tags" : "Save Event";
+            $("save-btn").style.display = readOnly && $("tag-picker-group").hidden ? "none" : "";
             $("delete-btn").style.display = ev && !readOnly ? "" : "none";
             $("modal-error").classList.remove("info");
-            $("modal-error").textContent = readOnly ? "This repeats. Change it in Google Calendar so every occurrence stays in sync." : "";
+            $("modal-error").textContent = readOnly ? "This repeats. Change it in Google Calendar so every occurrence stays in sync (tags can be set here)." : "";
             $("modal").style.display = "flex";
             if (!readOnly) $(focusId || "title").focus();
         }
@@ -1429,10 +1491,23 @@
 
         function setBusy(busy) {
             document.querySelectorAll(".modal-actions button").forEach(b => b.disabled = busy);
-            $("save-btn").textContent = busy ? "Saving…" : "Save Event";
+            $("save-btn").textContent = busy ? "Saving…" : $("save-btn").dataset.tagsOnly ? "Save Tags" : "Save Event";
         }
 
         async function saveEvent() {
+            if (editing && editing.recurring) {       // repeating: only the tags can change here
+                setBusy(true);
+                try {
+                    await api("POST", { action: "event.tags", id: editing.id, tags: FamilyTags.getPicked() });
+                    closeModal();
+                    refreshAll();
+                } catch (err) {
+                    $("modal-error").textContent = "Could not save: " + err.message;
+                } finally {
+                    setBusy(false);
+                }
+                return;
+            }
             const title = $("title").value.trim();
             const allDay = isAllDay();
             const errEl = $("modal-error");
@@ -1456,7 +1531,8 @@
             const payload = {
                 action: editing ? "update" : "create",
                 id: editing ? editing.id : null,
-                title, allDay, start, end
+                title, allDay, start, end,
+                tags: FamilyTags.getPicked()
             };
 
             setBusy(true);
@@ -1803,6 +1879,7 @@
     </script>
     <script src="parser.js"></script>
     <script src="assistant.js"></script>
+    <script src="tags.js"></script>
     <script src="school.js"></script>
 </body>
 </html>

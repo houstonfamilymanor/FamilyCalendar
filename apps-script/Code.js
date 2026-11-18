@@ -40,6 +40,7 @@ function doGet(e) {
     if (e.parameter.what === 'data') return getData_();
     if (e.parameter.what === 'mail') return getMail_();
     if (e.parameter.what === 'dismissed') return getDismissed_();
+    if (e.parameter.what === 'tags') return { tags: getTags_() };
     if (e.parameter.what === 'mailhtml') return getMailHtml_(e.parameter.id);
     if (e.parameter.what === 'attachment') return getAttachment_(e.parameter.id, e.parameter.i);
     return listEvents_(e.parameter.from, e.parameter.to);
@@ -58,6 +59,8 @@ function doPost(e) {
     if (/^(list|item|note)\./.test(data.action)) return mutateData_(data, email);
     // "mail.*", "roster.*", "rules.*" go to the school inbox (Mail.js).
     if (/^(mail|roster|rules)\./.test(data.action)) return mutateMail_(data);
+    // "tags.save", "event.tags" go to event tags (Tags.js).
+    if (/^(tags|event)\./.test(data.action)) return mutateTags_(data);
     return mutate_(data);
   });
 }
@@ -134,10 +137,12 @@ function listEvents_(fromStr, toStr) {
   if (to - from > MAX_RANGE_DAYS * DAY_MS) throw new Error('Date range too large');
 
   var tz = Session.getScriptTimeZone();
+  var tagMap = eventTagMap_();
   return calendar_().getEvents(from, to).map(function (ev) {
     var allDay = ev.isAllDayEvent();
     return {
       id: ev.getId(),
+      tags: tagMap[ev.getId()] || [],
       title: ev.getTitle(),
       allDay: allDay,
       start: allDay ? Utilities.formatDate(ev.getAllDayStartDate(), tz, 'yyyy-MM-dd')
@@ -159,6 +164,7 @@ function mutate_(data) {
     var created = times.allDay
       ? cal.createAllDayEvent(String(data.title), times.start, times.end)
       : cal.createEvent(String(data.title), times.start, times.end);
+    if (data.tags && data.tags.length) withLock_(function () { setEventTags_(created.getId(), data.tags); });
     return { status: 'success', id: created.getId() };
   }
 
@@ -167,12 +173,16 @@ function mutate_(data) {
     if (!ev) throw new Error('Event not found');
     if (ev.isRecurringEvent()) throw new Error('Repeating events can only be changed in Google Calendar');
     if (data.action === 'delete') {
+      var goneId = ev.getId();
       ev.deleteEvent();
+      withLock_(function () { setEventTags_(goneId, []); });
     } else {
       var t = parseTimes_(data);
       ev.setTitle(String(data.title));
       if (t.allDay) ev.setAllDayDates(t.start, t.end);
       else ev.setTime(t.start, t.end);
+      // Dragging an event sends no tags: leave them as they are.
+      if (Array.isArray(data.tags)) withLock_(function () { setEventTags_(ev.getId(), data.tags); });
     }
     return { status: 'success' };
   }
