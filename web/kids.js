@@ -147,8 +147,28 @@
     let items = new Map();            // key -> item (for the popup)
     let loaded = null;
 
+    // The server reads the school sites in the background after Save / "Check now";
+    // while that runs, check back every few seconds (up to ~9 minutes) and redraw when done.
+    let polling = null;
+    const busy = res => res && res.run && (res.run.waiting || res.run.running) && !res.run.stuck;
+    function poll() {
+        if (polling) return;
+        const started = Date.now();
+        polling = setInterval(async () => {
+            try {
+                const res = await api("GET", { what: "school" });
+                setState(res);
+                if (!busy(res) || Date.now() - started > 9 * 60000) {
+                    clearInterval(polling); polling = null;
+                    redraw();
+                }
+            } catch (e) { /* try again next tick */ }
+        }, 8000);
+    }
+
     function setState(res) {
         data = res && res.kids ? res : data;
+        if (busy(data)) poll();
         const chips = [];
         data.kids.forEach((k, i) => {
             const [c1, c2] = COLORS[i % COLORS.length];
@@ -314,6 +334,7 @@
 
     function statusLines(k) {
         if (!k.id) return "";
+        if (k.pending && busy(data)) return "⏳ Reading the school sites in the background… (this updates by itself)";
         const e = k.errors || {};
         const today = ymd(new Date());
         const count = (list, match) => list.filter(x => match(x) && (x.date || x.start || "").slice(0, 10) >= today).length;
@@ -324,7 +345,9 @@
             : `✓ Events: ${count(data.events, x => x.feed === k.eventsFeed)} coming up`);
         if (k.hasLetters) parts.push(e.letters ? `<span class="error">Letter days: ${escapeHtml(TROUBLE_SCHOOL)} (${escapeHtml(e.letters)})</span>`
             : `✓ Letter days: ${count(data.letters, x => x.cal === k.letterCal)} days`);
-        if (!e.lunch && !e.events && !e.letters && k.lastOk) parts.push(`read ${ago(k.lastOk)}`);
+        if (!e.lunch && !e.events && !e.letters && k.lastOk) {
+            parts.push(`read ${ago(k.lastOk)}` + (data.run && data.run.ms ? ` (took ${(data.run.ms / 1000).toFixed(1)}s)` : ""));
+        }
         return parts.join(" · ");
     }
 
@@ -357,13 +380,14 @@
     async function send(payload) {
         const btns = [el("kids-save"), el("kids-check")];
         btns.forEach(b => b.disabled = true);
-        el("kids-msg").textContent = "Reading the school sites…";
+        el("kids-msg").textContent = "Saving…";
         try {
             if (el("kids").contains(document.activeElement)) document.activeElement.blur();
-            setState(await api("POST", payload));
+            const res = await api("POST", payload);
+            setState(res);
             loaded = Promise.resolve();
             redraw();
-            el("kids-msg").textContent = "";
+            el("kids-msg").textContent = busy(res) ? "Saved. Reading the school sites in the background…" : "Saved.";
         } catch (err) {
             el("kids-msg").textContent = "Couldn't save: " + err.message;
         } finally {
