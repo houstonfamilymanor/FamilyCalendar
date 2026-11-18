@@ -1234,13 +1234,15 @@
                 const [list] = await Promise.all([api("GET", {
                     from: today.toISOString(),
                     to: new Date(today.getTime() + 15 * DAY).toISOString()
-                }), FamilyTags.ready(), FamilyKids.ready()]);
+                }), FamilyTags.ready()]);
                 dashboardAll = list.map(normalize).sort((a, b) => a.start - b.start);
             } catch (err) {
                 document.getElementById("upcoming-list").innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
                 return;
             }
             renderDashboard();
+            // School lunch / events / letter days join when they arrive; never hold up the panel.
+            FamilyKids.ready().then(renderDashboard);
         }
 
         /** Draw Today / Coming up from the loaded events (re-run when a tag filter changes). */

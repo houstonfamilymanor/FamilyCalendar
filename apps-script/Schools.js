@@ -16,8 +16,8 @@
  *   SchoolEvents  id (feed|eventId) | feed | title | start | end | allDay | fetchedAt
  *   LetterDays    id (cal|date) | cal | date | label | fetchedAt
  *
- * Refreshed by the 15-minute mail trigger (each kid at most every SCHOOL_REFRESH_HOURS)
- * and, as a fallback, when the page asks.
+ * Refreshed by the 15-minute mail trigger (each kid at most every SCHOOL_REFRESH_HOURS),
+ * on Save and on "Check now". Page loads never wait on the school sites.
  */
 
 var SCHOOL_REFRESH_HOURS = 6;
@@ -238,8 +238,11 @@ function refreshSchoolsIfStale_() {
   try { syncSchools_(false); } catch (e) { /* e.g. lock busy: next run catches up */ }
 }
 
+/**
+ * What the page shows. Only reads the Sheet, never the school sites, so page loads stay
+ * fast; the feeds are re-read by the 15-minute trigger, Save and "Check now".
+ */
 function getSchools_() {
-  refreshSchoolsIfStale_();
   var kids = readTable_('Kids')
     .sort(function (a, b) { return Number(a.order) - Number(b.order); })
     .map(function (k) {
