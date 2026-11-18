@@ -23,10 +23,10 @@
  * each run's start/end/duration is kept so the page can show progress or a stuck run.
  */
 
-var SCHOOL_REFRESH_HOURS = 6;
+var SCHOOL_REFRESH_HOURS = 24;  // be polite to the school sites: one read a day (plus Save / Check now)
 var SCHOOL_KEEP_PAST_DAYS = 14;
 var SCHOOL_AHEAD_DAYS = 120;
-var SCHOOL_STALE_DAYS = 3;      // no successful read for this long = show the troubleshooting note
+var SCHOOL_STALE_DAYS = 4;      // no successful read for this long = show the troubleshooting note
 var SCHOOL_STUCK_MINUTES = 8;   // a background run older than this never finished
 var MENU_PAGES = 4;
 var EVENT_PAGES = 6;
